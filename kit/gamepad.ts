@@ -175,16 +175,15 @@ export function bindGamepad<A extends string>(config: {
    */
   const findPadTakingOver = (pads: readonly (PadState | null)[]): number | null => {
     let takingOver: number | null = null;
-    for (const slot of [...buttonsDownBySlot.keys()]) {
-      if (!isStandard(pads[slot])) {
-        buttonsDownBySlot.delete(slot);
-      }
-    }
+    // Kept only for the pads that are here now, so a pad that left and comes
+    // back in the same place is seen for the first time again.
+    const downAtLastPoll = new Map(buttonsDownBySlot);
+    buttonsDownBySlot.clear();
     pads.forEach((pad, slot) => {
       if (!isStandard(pad)) {
         return;
       }
-      const downBefore = buttonsDownBySlot.get(slot) ?? new Set<number>();
+      const downBefore = downAtLastPoll.get(slot) ?? new Set<number>();
       const downNow = new Set<number>();
       let aButtonWentDown = false;
       pad.buttons.forEach((button, index) => {

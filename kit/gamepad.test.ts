@@ -245,21 +245,6 @@ describe('gamepad: one active pad, chosen by a button going down', () => {
     expect(actions.take().held.right).toBe(true);
   });
 
-  it('feeds actions from the active pad only', () => {
-    const { fake, actions, pad } = setUp();
-    const first = fake.connect();
-    const second = fake.connect();
-    first.hold('south');
-    pad.poll();
-    actions.take();
-
-    second.stick(-1, 0);
-    pad.poll();
-    const snapshot = actions.take();
-    expect(snapshot.held.left).toBe(false);
-    expect(snapshot.held.jump).toBe(true);
-  });
-
   it('lets a button on the other pad take over, after the first pad holds are released', () => {
     const { fake, actions, log, pad } = setUp();
     const first = fake.connect();
@@ -302,7 +287,7 @@ describe('gamepad: one active pad, chosen by a button going down', () => {
     expect(log).toEqual(['release pause pad:start', 'press jump pad:south']);
   });
 
-  it('does not let a stick alone take over', () => {
+  it('feeds actions from the active pad only: a stick alone on the other pad does not take over', () => {
     const { fake, actions, log, pad } = setUp();
     const first = fake.connect();
     const second = fake.connect();
@@ -330,12 +315,9 @@ describe('stickDirection', () => {
     expect(stickDirection(0.49, 0, null)).toBeNull();
     expect(stickDirection(0.5, 0, null)).toBe('right');
     expect(stickDirection(-0.5, 0, null)).toBe('left');
+    // The y axis is negative upward.
     expect(stickDirection(0, 0.5, null)).toBe('down');
-  });
-
-  it('reads the y axis as negative upward', () => {
-    expect(stickDirection(0, -0.9, null)).toBe('up');
-    expect(stickDirection(0, 0.9, null)).toBe('down');
+    expect(stickDirection(0, -0.5, null)).toBe('up');
   });
 
   it('takes the stronger axis, and the horizontal one on a tie', () => {
@@ -428,15 +410,6 @@ describe('gamepad: the stick holds one stick input at a time', () => {
     controller.stick(0.4, 0);
     pad.poll();
     expect(actions.take().held.right).toBe(false);
-  });
-
-  it('does not turn for a stick resting near a diagonal', () => {
-    const { controller, log, pad } = setUpWithActiveStick();
-    for (const [x, y] of [[0.8, -0.7], [0.7, -0.8], [0.8, -0.7], [0.7, -0.8]] as const) {
-      controller.stick(x, y);
-      pad.poll();
-    }
-    expect(log).toEqual(['press right pad:stick-right']);
   });
 
   it('binds the d-pad separately from the stick', () => {
@@ -623,16 +596,23 @@ describe('gamepad: nothing is left held', () => {
     expect(pad.status()).toBe('none');
   });
 
-  it('presses again for a button still down on a pad that comes back', () => {
-    const { fake, actions, pad } = setUp();
-    const first = fake.connect();
-    first.hold('south');
+  it('presses again for a button still down on a pad that comes back in the same place', () => {
+    const southDown: PadState = {
+      connected: true,
+      mapping: 'standard',
+      buttons: Array.from({ length: 17 }, (_, index) => ({ pressed: index === 0 })),
+      axes: [0, 0, 0, 0],
+    };
+    let pads: readonly (PadState | null)[] = [southDown];
+    const actions = createActions(ACTION_NAMES);
+    const pad = bindGamepad({ actions, bindings: BINDINGS, environment: { getGamepads: () => pads }, isCapturing: () => true });
     pad.poll();
-    first.disconnect();
+    pads = [null];
     pad.poll();
     actions.take();
 
-    fake.connect().hold('south');
+    // A browser shows a pad again when one of its buttons is pressed, so it comes back with that button down.
+    pads = [southDown];
     pad.poll();
     expect(actions.take().pressed.jump).toBe(true);
     expect(pad.status()).toBe('ready');

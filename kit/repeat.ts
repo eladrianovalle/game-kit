@@ -1,6 +1,5 @@
-// Turns a held direction into the steps on which to act, the way a held key
-// repeats in a text box: at once, again after a wait, then at a steady pace.
-// It reads what is held and knows nothing of pads, so a held arrow key can use it too.
+// A held direction repeats the way a held key does in a text box. It reads what
+// is held and knows nothing of pads, so a held arrow key can use it too.
 
 /**
  * Turns "this direction is held" into "act now": once when it goes down, again
