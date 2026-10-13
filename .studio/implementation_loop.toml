@@ -1,0 +1,25 @@
+# Written by /studio-setup on 2026-10-13. Edit freely — setup never overwrites this file.
+#
+# Edit anything here. /forge reads this file *instead of* Studio's shipped
+# config/implementation_loop.toml: a [gate] key you delete is empty, not a guess — this
+# file is the only thing that says how /forge gates this repo — while [loop]/[editor]
+# keys you leave out fall back to Studio's built-in defaults.
+#
+# static_checks holds commands: /forge replaces {paths} with the files this unit is
+# scoped to, and a command with no {paths} in it runs exactly as written.
+
+[gate]
+# The single gate for every unit: type check, lint (zero warnings), tests (specs/game-kit.md).
+test_command = "npm run check"
+# The gate already lints the whole repo with zero warnings, so there is no second lint command.
+static_checks = []
+require_mutation_check = false
+mutation_command = ""
+
+[loop]
+deliver_on_gate_fail = true
+
+[editor]
+mandate = "contrarian"
+read_scope = "touched+importers"
+output_budget = 400

@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "setup_version": 5,
+  "completed_steps": {
+    "role_pack": 1,
+    "role_customization": 1,
+    "persona_customization": 2,
+    "cleanup": 1,
+    "unstale_config": 3,
+    "smoke_config": 4,
+    "implementation_loop_config": 5
+  },
+  "choices": {
+    "role_pack": "studio_core",
+    "role_overrides": [],
+    "resolved_roles": [
+      "marketing",
+      "product",
+      "design",
+      "art",
+      "engineering",
+      "test_engineer",
+      "qa"
+    ],
+    "role_customizations": {},
+    "persona_customizations": {},
+    "cleanup": {
+      "ttl_days": 30,
+      "size_limit_mb": 900
+    },
+    "unstale_config": {
+      "snapshot": [],
+      "audit": []
+    },
+    "smoke_config": {
+      "kind": "",
+      "keys": []
+    },
+    "implementation_loop_config": {
+      "status": "template"
+    }
+  },
+  "timestamps": {
+    "first_setup": "2026-10-13T20:46:10Z",
+    "last_setup": "2026-10-13T20:46:10Z"
+  }
+}
