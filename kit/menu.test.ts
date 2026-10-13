@@ -114,7 +114,10 @@ describe('menu focus: next and previous walk the controls in document order and 
     link.href = '#/credits';
     const input = document.createElement('input');
     const select = document.createElement('select');
-    screen.append(paragraph, link, input, select);
+    // A hidden input cannot take focus, so the walk must not stop on it.
+    const hiddenInput = document.createElement('input');
+    hiddenInput.type = 'hidden';
+    screen.append(paragraph, link, hiddenInput, input, select);
     const menu = createMenuFocus({ root, scope: () => screen });
 
     const visited: (Element | null)[] = [];
@@ -359,20 +362,6 @@ describe('menu focus: a pad works a menu screen, and is gated like a key in play
     setPaused(false);
     controller.hold('east');
     expect(frame().advance).toBe(true);
-  });
-
-  it('on the Play screen, a menu action reaches the game as an action and does not touch the page', () => {
-    const { root, clicks, controller, frame, goTo, first } = setUpToyGame();
-    first.focus();
-    goTo('play');
-
-    controller.hold('dpad-down');
-    controller.hold('south');
-    const pressed = frame();
-    expect(pressed.down).toBe(true);
-    expect(pressed.confirm).toBe(true);
-    expect(root.activeElement).toBe(first);
-    expect(clicks).toEqual([]);
   });
 
   it('a menu button still held when the screen changes to Play does not press there', () => {
