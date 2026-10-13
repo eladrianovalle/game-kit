@@ -1,6 +1,7 @@
 // Shows one of a game's declared screens at a time, keeps the URL fragment and
 // the browser's history in step with it, and moves focus to it. A screen change
-// is an instant swap, as a page load is.
+// is an instant swap, as a page load is. It scrolls the page only when none of
+// the game is on screen to see the change.
 //
 // Each screen has an address, the part of the URL after `#`. Going to a screen
 // adds a history entry (or replaces the current one, for a screen that says
@@ -36,7 +37,10 @@ export interface Screens {
   dispose(): void;
 }
 
-export type ScreensEnvironment = Pick<Window, 'history' | 'location' | 'addEventListener' | 'removeEventListener'>;
+export type ScreensEnvironment = Pick<
+  Window,
+  'history' | 'location' | 'innerHeight' | 'addEventListener' | 'removeEventListener'
+>;
 
 const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6';
 /** The address a URL with no fragment stands for. */
@@ -44,6 +48,12 @@ const HOME_ADDRESS = '/';
 
 export function createScreens(config: {
   root: HTMLElement;
+  /**
+   * What is brought on screen when a screen arrives and none of it can be
+   * seen. Default: the root. A game whose screens are layers over one picture
+   * names the box that holds the picture.
+   */
+  scrollTarget?: HTMLElement;
   screens: readonly ScreenDef[];
   /** Where a bad or unlinkable address lands. */
   fallback: string;
@@ -53,6 +63,7 @@ export function createScreens(config: {
   environment: ScreensEnvironment;
 }): Screens {
   const { root, screens, onChange, environment } = config;
+  const scrollTarget = config.scrollTarget ?? root;
   let currentId: string | null = null;
   let currentView: ScreenView | null = null;
   let currentSection: HTMLElement | null = null;
@@ -74,6 +85,12 @@ export function createScreens(config: {
     currentSection = null;
   };
 
+  /** Is any part of the scroll target on screen now? */
+  const isInView = (): boolean => {
+    const box = scrollTarget.getBoundingClientRect();
+    return box.bottom > 0 && box.top < environment.innerHeight;
+  };
+
   const show = (definition: ScreenDef, params: unknown, moveFocus: boolean): void => {
     const previousId = currentId;
     leaveCurrent();
@@ -88,8 +105,14 @@ export function createScreens(config: {
     currentSection = section;
 
     if (moveFocus) {
-      root.scrollIntoView({ block: 'start' });
-      focusOn(view.focusTarget ?? section.querySelector<HTMLElement>(HEADING_SELECTOR));
+      // A visitor who can already see the game must not have the page moved
+      // under them, by the scroll or by the focus. One who has scrolled away
+      // from all of it is brought back to it.
+      const inView = isInView();
+      if (!inView) {
+        scrollTarget.scrollIntoView({ block: 'start' });
+      }
+      focusOn(view.focusTarget ?? section.querySelector<HTMLElement>(HEADING_SELECTOR), inView);
     }
     onChange(definition.id, previousId);
   };
@@ -151,7 +174,8 @@ export function createScreens(config: {
   };
 }
 
-function focusOn(target: HTMLElement | null): void {
+/** Move focus to `target`. `holdScroll` stops the browser scrolling the page to show it. */
+function focusOn(target: HTMLElement | null, holdScroll: boolean): void {
   if (!target) {
     return;
   }
@@ -160,5 +184,5 @@ function focusOn(target: HTMLElement | null): void {
   if (!target.hasAttribute('tabindex') && target.matches(HEADING_SELECTOR)) {
     target.setAttribute('tabindex', '-1');
   }
-  target.focus();
+  target.focus({ preventScroll: holdScroll });
 }

@@ -11,6 +11,9 @@ export interface HistoryCall {
   url: string;
 }
 
+/** The height of the fake window, in CSS pixels. */
+export const FAKE_WINDOW_HEIGHT = 768;
+
 export function createFakeHistory(options: { hash?: string } = {}) {
   const listeners = createRecordingTarget();
   /** The fragment of each entry, oldest first. */
@@ -51,9 +54,10 @@ export function createFakeHistory(options: { hash?: string } = {}) {
   const environment = {
     history,
     location,
+    innerHeight: FAKE_WINDOW_HEIGHT,
     addEventListener: listeners.addEventListener,
     removeEventListener: listeners.removeEventListener,
-  } as unknown as Pick<Window, 'history' | 'location' | 'addEventListener' | 'removeEventListener'>;
+  } as unknown as Pick<Window, 'history' | 'location' | 'innerHeight' | 'addEventListener' | 'removeEventListener'>;
 
   return {
     environment,

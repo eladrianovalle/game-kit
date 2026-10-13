@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createFakeHistory } from '../testing/fake-history';
-import { createFakePage } from '../testing/fake-page';
+import { createFakeHistory, FAKE_WINDOW_HEIGHT } from '../testing/fake-history';
+import { createFakePage, placeElement } from '../testing/fake-page';
 import { createScreens, type ScreenDef } from './screens';
 
 /** Four screens shaped like a game's: a home, a list that can be linked to, a level that cannot, and a summary that takes the level's place. */
@@ -131,6 +131,100 @@ describe('screens', () => {
     expect(log).toContain('left menu');
     screens.go('level', { number: 1 });
     expect(root.children.length).toBe(0);
+  });
+});
+
+describe('screens and the page\'s scroll', () => {
+  /** Record each time an element is brought into view, and each time focus is moved and whether the page may scroll for it. */
+  function watchThePage(document: Document, elements: Record<string, HTMLElement>) {
+    const scrolls: [string, unknown][] = [];
+    for (const [name, element] of Object.entries(elements)) {
+      element.scrollIntoView = (options?: unknown) => {
+        scrolls.push([name, options]);
+      };
+    }
+    const focuses: unknown[] = [];
+    const window = document.defaultView as unknown as { HTMLElement: typeof HTMLElement };
+    const focus = window.HTMLElement.prototype.focus;
+    window.HTMLElement.prototype.focus = function (this: HTMLElement, options?: FocusOptions) {
+      focuses.push(options);
+      focus.call(this, options);
+    };
+    return { scrolls, focuses };
+  }
+
+  it('a screen arriving while any of the root is on screen scrolls nothing, and moves focus without scrolling', () => {
+    const { document, root, screens, history } = setUp();
+    // The root's top is above the window and its bottom is in it.
+    placeElement(root, { left: 0, top: -300, width: 800, height: 600 });
+    const { scrolls, focuses } = watchThePage(document, { root });
+    screens.go('list');
+    screens.go('level', { number: 1 });
+    screens.go('summary');
+    history.back();
+    expect(scrolls).toEqual([]);
+    expect(focuses).toEqual([{ preventScroll: true }, { preventScroll: true }, { preventScroll: true }, { preventScroll: true }]);
+    // Focus still arrived.
+    expect(document.activeElement).toBe(root.querySelector('[data-role="last-chosen"]'));
+  });
+
+  it('a screen arriving while none of the root is on screen brings the root to the top, and lets focus scroll', () => {
+    for (const top of [-600, FAKE_WINDOW_HEIGHT]) {
+      const { document, root, screens } = setUp();
+      // Wholly above the window, then wholly below it. An edge that only touches the window's shows nothing.
+      placeElement(root, { left: 0, top, width: 800, height: 600 });
+      const { scrolls, focuses } = watchThePage(document, { root });
+      screens.go('list');
+      expect(scrolls).toEqual([['root', { block: 'start' }]]);
+      expect(focuses).toEqual([{ preventScroll: false }]);
+    }
+  });
+
+  it('judges by, and scrolls to, the scroll target when the game names one', () => {
+    const { document, hostElement: stage } = createFakePage();
+    const root = document.createElement('div');
+    stage.append(root);
+    const screen = (id: string, address: string): ScreenDef => ({
+      id,
+      address,
+      linkable: true,
+      replacesPrevious: false,
+      enter: () => ({ element: document.createElement('div') }),
+    });
+    const screens = createScreens({
+      root,
+      scrollTarget: stage,
+      screens: [screen('menu', '/'), screen('list', '/list')],
+      fallback: 'menu',
+      onChange: () => {},
+      environment: createFakeHistory().environment,
+    });
+    // The root is a layer with no box of its own; the stage it lies over is on screen.
+    placeElement(root, { left: 0, top: 0, width: 0, height: 0 });
+    placeElement(stage, { left: 0, top: 10, width: 800, height: 600 });
+    const { scrolls } = watchThePage(document, { root, stage });
+    screens.go('list');
+    expect(scrolls).toEqual([]);
+
+    placeElement(stage, { left: 0, top: -2000, width: 800, height: 600 });
+    screens.go('menu');
+    expect(scrolls).toEqual([['stage', { block: 'start' }]]);
+  });
+
+  it('the first screen, shown as the page loads, scrolls nothing wherever the root is', () => {
+    const { document, hostElement: root } = createFakePage();
+    const scrolls: unknown[] = [];
+    root.scrollIntoView = () => {
+      scrolls.push('root');
+    };
+    createScreens({
+      root,
+      screens: [{ id: 'menu', address: '/', linkable: true, replacesPrevious: false, enter: () => ({ element: document.createElement('div') }) }],
+      fallback: 'menu',
+      onChange: () => {},
+      environment: createFakeHistory().environment,
+    });
+    expect(scrolls).toEqual([]);
   });
 });
 
