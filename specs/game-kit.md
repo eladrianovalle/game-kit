@@ -63,6 +63,19 @@ A change travels one way. It is made in `game-kit`, reviewed there, and merged t
 
 ## How It Works (Technical)
 
+### Where the other repos were read
+
+Every statement this spec makes about another repo was read at one of these commits. A hand-off that quotes a file quotes it as it stood there; if the quoted text is gone, the claim needs checking again.
+
+| Repo | Commit | What was read there |
+|---|---|---|
+| `cemetery-security` | `1a9a2e55bc07f422c8abd98b4705199dabdc56c4` (on `feat/web-game-kit` only) | The first import's source: `web/kit` and the eight helper files. |
+| `cemetery-security` | `50eecdc016ab2e0f78cd5726c7485859c79198f7` (`dev` when the spec was written) | The second import's source; `specs/web-game-kit.md` ("The host contract", "Theme by inheritance", "Theme variables in the contract"); `web/package.json` (`check`, TypeScript `^7.0.2`); `.github/workflows/web.yml` (runs `npm run check` for `web/**`, Node 22). |
+| `cemetery-security` | `39654d7e165fa3635be02571d64025ff16c7d182` (`dev` on 2026-10-13, later the same day) | Checked again: `git diff 50eecdc 39654d7 -- web/kit web/testing specs/web-game-kit.md web/package.json .github/workflows/web.yml` is empty, so everything in the row above holds here too. |
+| `into-the-dark-web` | `c0220ab57639bbf5daca040cc8b43b4684c3e458` (`main`) | `kit/` (17 files and the pin), `testing/`, `tools/sync-kit.mjs` and its test, `game/mount-game.ts` (the `scrollIntoView` call), `tsconfig.json` (`vite/client`), `package.json` (TypeScript `~5.9.3`, lint with zero warnings), `.nvmrc` (25). |
+| `into-the-dark-web` | `404ba2a93968440c5f164605a5f0c77fcac0d346` (`build/parity`, the working branch) | Checked again: `kit/`, `testing/`, `tools/sync-kit.mjs`, `tsconfig.json` and `.nvmrc` are the same as on `main`, and the `scrollIntoView` call is still in the Play branch of `game/mount-game.ts`. |
+| `OrcPunk-dotcom` | `b9a3e8b627910398a70e9569281e3e845ef73d83` (`main`) | `docs/specs/game-pages.md`: the two lines quoted in "Hand-off: the site" and the decision-table answer quoted in Cemetery Security's step 6. |
+
 ### The repo on day one
 
 | Path | Job | Copied by games |
@@ -99,7 +112,7 @@ git add kit testing && git commit
 | Name | Source commit in `cemetery-security` | What it is |
 |---|---|---|
 | `IMPORT_OLD` | `1a9a2e55bc07f422c8abd98b4705199dabdc56c4` | The tree Into The Dark is pinned to. On branch `feat/web-game-kit` only. |
-| `IMPORT_NEW` | `50eecdc016ab2e0f78cd5726c7485859c79198f7` | `origin/dev` on 2026-10-13. If `dev` has moved, its head on the day. |
+| `IMPORT_NEW` | `50eecdc016ab2e0f78cd5726c7485859c79198f7` | `origin/dev` when the spec was written. `dev` has since moved to `39654d7`, with the kit, the helpers and the contract's source file unchanged, so either commit gives the same import and the same `CONTRACT.md`. If `dev` has moved again on the day, the builder uses its head and first checks that `specs/web-game-kit.md` is unchanged from `50eecdc`; if it is not, `CONTRACT.md` is taken from `50eecdc`. |
 
 `IMPORT_OLD` and `IMPORT_NEW` stand for the two import commits' own hashes in `game-kit`; they are not refs, so substitute the hashes in the commands below or tag them locally. They are the first two commits on the branch, in that order. Nothing has to sit between them and the branch is never reordered. Each message carries the source repository (`eladrianovalle/cemetery-security`), the full source commit, the source paths, a line saying the copy is byte for byte, and where the earlier history lives (branch `feat/web-game-kit` and pull request #735 there). The second also says what changed since the first: `screens.ts` scrolls only when none of the game is on screen and focuses without scrolling (commit `0e55fe2` on `feat/web-game-kit`, which reached `dev` in the squash `497a92b`, pull request #735).
 
@@ -109,7 +122,7 @@ git add kit testing && git commit
 git -C game-kit rev-parse IMPORT_OLD:kit        # abb781ce590f02c2ba52bcd6418f40cfd0016c92
 git -C "$CS"    rev-parse 1a9a2e55bc07f422c8abd98b4705199dabdc56c4:web/kit   # the same
 git -C game-kit rev-parse IMPORT_OLD:testing    # a4430fdffbe8d1879fed58a743b489d24a52fc6e
-git -C into-the-dark-web rev-parse HEAD:testing # the same
+git -C into-the-dark-web rev-parse c0220ab57639bbf5daca040cc8b43b4684c3e458:testing   # the same
 
 git -C game-kit rev-parse IMPORT_NEW:kit        # 68d7cfe02cbebcae5a9f1d15aadbee2444fee9b1
 git -C "$CS"    rev-parse 50eecdc016ab2e0f78cd5726c7485859c79198f7:web/kit   # the same
@@ -119,7 +132,7 @@ git -C game-kit show --stat --format= IMPORT_OLD   # 25 files, all under kit/ or
 git -C game-kit show --stat --format= IMPORT_NEW   # kit/screens.ts, kit/screens.test.ts, testing/fake-history.ts
 ```
 
-Into The Dark's `kit` folder cannot be compared whole, because it also holds the pin file; its 17 kit files were compared one by one in the debate and match `1a9a2e5`. The tests under `kit/` and `testing/` number 98 at `IMPORT_OLD` (89 and 9) and 102 at `IMPORT_NEW` (93 and 9).
+Into The Dark's `kit` folder cannot be compared whole, because it also holds the pin file; its 17 kit files at `c0220ab` were compared one by one with `web/kit` at `1a9a2e5` and match: `git ls-tree c0220ab kit/` without the pin line lists the same 17 blob hashes as `git -C "$CS" ls-tree 1a9a2e5 web/kit/`. The tests under `kit/` and `testing/` number 98 at `IMPORT_OLD` (89 and 9) and 102 at `IMPORT_NEW` (93 and 9).
 
 ### The pin file
 
@@ -153,14 +166,14 @@ Into The Dark's first pin has only the first two `copies` entries (see its hand-
 
 ### Changes to the sync tool
 
-`tools/sync-kit.mjs` starts as Into The Dark's file. The six changes below were sketched and run in a throwaway copy during the proofread. It has three forms: `--from <checkout>` copies the pinned commit in and records hashes; `--from <checkout> --check` changes nothing and fails if any file differs from the pinned commit; `--check` alone fails if any file differs from its recorded hash and needs no other checkout, which is why it can run in a game's CI. The tool reads the other checkout through git objects only (`git show`, `git ls-tree`, and for changes 2 and 3 `git cat-file`, `git merge-base --is-ancestor` and `git rev-parse`), never its working files, so that checkout's branch and uncommitted work do not matter. The copy and hash logic is kept. The changes:
+`tools/sync-kit.mjs` starts as Into The Dark's file at `c0220ab`. The six changes below were sketched and run in a throwaway copy during the proofread. It has three forms: `--from <checkout>` copies the pinned commit in and records hashes; `--from <checkout> --check` changes nothing and fails if any file differs from the pinned commit; `--check` alone fails if any file differs from its recorded hash and needs no other checkout, which is why it can run in a game's CI. The tool reads the other checkout through git objects only (`git show`, `git ls-tree`, and for changes 2 and 3 `git cat-file`, `git merge-base --is-ancestor` and `git rev-parse`), never its working files, so that checkout's branch and uncommitted work do not matter. The copy and hash logic is kept. Every exit has one of three codes: 0, all is as it should be; 1, a file differs or the pin is not on main; 2, the tool cannot tell (a bad pin, a bad checkout, a commit or path it cannot find). The changes:
 
 1. **Wording.** The header and the messages that name Cemetery Security say "a game-kit checkout". The success line `kit/ and testing/ match` becomes "the vendored kit files match".
-2. **One-line errors.** Every error prints one line and no stack trace. That takes two changes: git's own stderr is silenced where the tool reports the failure itself, and the errors the script throws today (`<path> does not exist at <commit>`, a pin that records no hashes) are caught and printed as one line. A pinned commit the checkout does not have: `sync-kit.mjs: <commit> is not in <checkout>. Is that a game-kit checkout, and has it been fetched?`, exit 2. The tool looks for the commit before it asks change 3's question.
-3. **Is the pin on main?** With `--from`, the tool asks whether the pinned commit is an ancestor of `origin/main` in that checkout. Exit 0 from git: on main. Exit 1: not on main; `--from` copies and adds a note, `--from --check` exits 1 with `sync-kit.mjs: <commit> is not on origin/main of <checkout> (origin/main there is <short hash>). Fetch that checkout and try again; if it still fails, the kit change has not merged.` Any other exit, including a checkout with no `origin/main`: exit 2 with `sync-kit.mjs: <checkout> has no origin/main to compare with. Is it a clone of game-kit?` The check reads the checkout as last fetched. It is evidence for the owner, who merges kit first; it is not a gate.
+2. **One-line errors.** Every error prints one line and no stack trace. That takes two changes: git's own stderr is silenced where the tool reports the failure itself, and the errors the script throws today (`<path> does not exist at <commit>`, a pin that records no hashes) are caught and printed as one line, each with exit 2. A pin that records no hashes is an error under `--check` alone, which has nothing else to compare with; `--from --check` needs none. A pinned commit the checkout does not have: `sync-kit.mjs: <commit> is not in <checkout>. Is that a game-kit checkout, and has it been fetched?`, exit 2. The tool looks for the commit before it asks change 3's question.
+3. **Is the pin on main?** With `--from`, the tool asks whether the pinned commit is an ancestor of `origin/main` in that checkout. Exit 0 from git: on main. Exit 1: not on main; `--from` copies, records hashes, adds the note `sync-kit.mjs: note: <commit> is not on origin/main of <checkout>` and exits 0, while `--from --check` exits 1 with `sync-kit.mjs: <commit> is not on origin/main of <checkout> (origin/main there is <short hash>). Fetch that checkout and try again; if it still fails, the kit change has not merged.` Any other exit, including a checkout with no `origin/main`: exit 2 with `sync-kit.mjs: <checkout> has no origin/main to compare with. Is it a clone of game-kit?` That exit comes before anything is written, for plain `--from` as well. The check reads the checkout as last fetched. It is evidence for the owner, who merges kit first; it is not a gate.
 4. **A failed hash check says what to do.** After the file list: if the change is wanted it belongs in `game-kit` (README, flow (c)); to discard it, run `node tools/sync-kit.mjs --from <game-kit checkout>`.
 5. **`--root <dir>` stays as it is**, documented as "used by the tests" and nothing else.
-6. **Nothing is written until every entry is found.** The tool lists the files of every `copies` entry at the pinned commit before it writes any. Today a pin whose commit lacks one entry (for example a three-entry pin at a commit with no `tools/sync-kit.mjs`) copies `kit/` and `testing/`, then exits without recording hashes.
+6. **Nothing is written until every entry is found.** The tool lists the files of every `copies` entry at the pinned commit before it writes any. Today a pin whose commit lacks one entry (for example a three-entry pin at a commit with no `tools/sync-kit.mjs`) copies `kit/` and `testing/`, then exits without recording hashes. With the change it prints `sync-kit.mjs: <path> does not exist at <commit>`, exits 2, and leaves every game file and the pin as they were. This is what stops a sync leaving a game half-copied with no hashes recorded.
 
 The tool copies itself. Overwriting a running script is harmless because Node has already read it; the README says to run the command once more if `tools/sync-kit.mjs` was among the copied files.
 
@@ -240,7 +253,7 @@ The corrections are text only. `kit/host.ts` is types and names no style and no 
 6. Whether `CONTRACT.md` changes. If it does, the site is a party; link the site issue.
 7. The kit tests added or changed, named by the behaviour they hold.
 
-**Who reviews.** Once the review and response fleet takes the repo on (requested in eladrianovalle/orc-review#178, not this spec's work), its reviewer comments and the owner merges. Until then nothing stands in: the owner reads and merges. The import pull request carries the hash commands above and their output as its evidence.
+**Who reviews.** The review and response fleet took the repo on on 2026-10-13 (eladrianovalle/orc-review#178, not this spec's work): its reviewer comments on every pull request, its responder answers by adding commits and never by force-pushing, rebasing or squashing, and the owner merges. The import pull request carries the hash commands above and their output as its evidence.
 
 **(a) A kit change one game needs.**
 
@@ -267,6 +280,7 @@ The corrections are text only. `kit/host.ts` is types and names no style and no 
 |---|---|
 | A pin names a commit that is not on `main` | The game's CI stays green: the hash check knows nothing of `main`. `--from --check` exits 1 with the not-on-main message, and the owner merges kit first. |
 | A pin names a commit the checkout lacks, or the checkout has no `origin/main` | Exit 2 with one line in each case. |
+| A pin lists a path its commit does not hold | Exit 2 with one line, before anything is written (change 6). |
 | A stale `game-kit` checkout | `--from --check` says "not on main" for a commit that is. The message says to fetch. A checkout fetched before a force-push of `main` can pass falsely; nothing catches that. |
 | A hand edit to a copied file | `npm run check` fails locally and in CI and names the file. Flow (c). |
 | A hand edit to a file together with its hash in the pin | Not caught by CI. Caught by the next `--from --check`, which compares bytes with the pinned commit, and in review: a hash that changes value while `commit` does not. Accepted. A hash edited on its own fails `--check` in CI. |
@@ -283,9 +297,9 @@ The corrections are text only. `kit/host.ts` is types and names no style and no 
 Settled by the owner:
 
 - **Its own private repo, `eladrianovalle/game-kit`, with this spec as its first pull request.** His words: "game-kit works".
-- **Day one holds the kit and its test helpers only: exactly what Into The Dark copies today.** That includes `testing/literals.ts`, which no kit file uses but both games' tests import.
+- **Of the kit itself, day one holds the 17 files and their test helpers only: exactly what Into The Dark copies today.** The tool, `CONTRACT.md` and the repo's own config sit beside them. The helpers include `testing/literals.ts`, which no kit file uses but both games' tests import.
 - **Games copy the kit in at a pinned commit with a hash check.** Only the source of the copy changes, and Cemetery Security becomes a user like any other game.
-- **The repo joins the review and response fleet.** His words: "let's also get it added to the review/response fleet". Requested in orc-review#178; the spec assumes no reviewer exists on day one.
+- **The repo joins the review and response fleet.** His words: "let's also get it added to the review/response fleet". Done in orc-review#178 on 2026-10-13, so a reviewer exists from this spec's own pull request on.
 
 Decided in the debate, with what was rejected:
 
@@ -311,7 +325,7 @@ Decided in the debate, with what was rejected:
 - CI in `game-kit` that runs a game, cross-repo tokens, a bot that moves pins.
 - Into The Dark adopting the newer screen navigation.
 - Each game's own font, colour and cross-origin work. That is the site spec's, in the game repos.
-- Tidying the imported files, such as test names that still say `web/kit`. Changing them at import would break byte identity; they are fixed when next touched.
+- Tidying the imported files, such as the two test names that still say `web/kit` and `web/game` (in `kit/host.test.ts` and `kit/boundaries.test.ts`), the only game-specific names in kit files. Changing them at import would break byte identity; the first kit pull request that edits either file for another reason renames them.
 - A pull request template, a guard against overwriting a hand edit, automatic deletion of removed files, a check of `repository`.
 
 Cut by the final review: seven units became three; the commit-order rule and the special pin commit it existed for; the tool's test as a copied file; `--root` as an adoption path; the unit and browser checks for Into The Dark's later adoption; the code block in `CONTRACT.md` that duplicated `kit/host.ts`; the stand-in reviewer; every line number in a hand-off.
@@ -320,10 +334,10 @@ Cut by the final review: seven units became three; the commit-order rule and the
 
 1. **Into The Dark will meet a behaviour change it has not tested.** The newer screen navigation scrolls and focuses differently, automated tests are unlikely to show it, and no date is set for adopting it. Until it does, Into The Dark cannot take any other kit change, which is the thing the owner wanted fixed. Its issue says so.
 2. **Both hand-offs wait on other agents.** Each game's agent picks its issue up between its own units. Until Cemetery Security adopts, two editable copies of the kit exist and nothing catches an edit there.
-3. **The merge rule is a convention.** Turning off squash and rebase merging removes one accident. It does not stop a force-push to `main` (there is no branch protection today), a responder rebasing a kit branch a game is pinned to, or a game merging first. Whether the fleet's responder ever force-pushes was not checked.
+3. **The merge rule is a convention.** Turning off squash and rebase merging removes one accident. It does not stop a force-push to `main` (there is no branch protection today), or a game merging first. The fleet's responder is told to add commits only and never to force-push, rebase or squash (orc-review#178); that is an instruction to an agent, not a setting.
 4. **No single CI proves the kit for both games.** `game-kit` checks under TypeScript 5.9. Cemetery Security is on TypeScript 7 and learns of a compiler-specific problem only when it moves its pin. Its old pin keeps working meanwhile.
-5. **Nobody reviews a kit pull request for its effect on the game its author does not build.** Item 5 of the pull request contents is the author's own account. The fleet, when it arrives, reads the kit diff, not the other game. The backstop is that a game is never broken until it chooses to move its pin.
-6. **Until the fleet arrives the owner is the only reader of a kit change.** The import is checkable by hash. A behaviour change is not.
+5. **Nobody reviews a kit pull request for its effect on the game its author does not build.** Item 5 of the pull request contents is the author's own account. The fleet's reviewer reads the kit diff and can read both games, but nothing runs the other game against the change. The backstop is that a game is never broken until it chooses to move its pin.
+6. **A review can check an import and cannot check a behaviour change.** The import is checkable by hash, and the fleet's reviewer did recompute this spec's hashes. A change to how the kit behaves is read, by the reviewer and the owner, and not run.
 7. **The hand-off steps were run only in throwaway copies, against a sketch of the tool.** The proofread ran both games' steps and both passed, with `npm run check` green in each (Cemetery Security: 1406 tests). The real tool is written in unit 1, so its exact messages are what unit 1's test pins, and a wording difference there must be carried into the two issues.
 
 Open questions for the owner. The build takes the default unless he says otherwise.
@@ -332,7 +346,7 @@ Open questions for the owner. The build takes the default unless he says otherwi
 |---|---|---|---|
 | 1 | Is Into The Dark running the current kit part of "done"? | No. This ends when both games copy from `game-kit`. | "Make it a unit." It becomes a fourth unit in that repo; its agent writes the checks and he agrees to a phone check. |
 | 2 | Where does the host contract text live? | `game-kit/CONTRACT.md`, owned here, corrected, with a note on OrcPunk-dotcom#84 and a pointer left in Cemetery Security's spec. | "Leave it in Cemetery Security." No `CONTRACT.md`; that repo's agent makes the corrections and the README links there. Into The Dark then cannot change a contract it is bound by. |
-| 3 | What stands in for review before the fleet takes the repo on? | Nothing. The import pull request carries the hash commands and their output; he merges. | "Get a second read." A fresh agent session reviews, its comment headed "Pre-fleet review by a fresh agent session", not in the fleet's format. |
+| 3 | What stands in for review before the fleet takes the repo on? | Closed: nothing has to. The fleet has reviewed this repo since 2026-10-13. | Nothing to say. |
 | 4 | "Cemetery Security deletes its original": a real delete? | No. The files stay at the same paths and become a checked copy, so no import line changes. | "I want it visible." A delete-and-recopy commit; the net diff is the same. |
 | 5 | Who installs Studio in `game-kit`, and when? | The coordinator, in its own commit before unit 1, outside the spec pull request. | "Put it in the spec pull request." |
 | 6 | Are squash and rebase merging turned off? | Yes, by him, before unit 1's pull request merges: `gh repo edit eladrianovalle/game-kit --enable-squash-merge=false --enable-rebase-merge=false`. It keeps a tested commit reachable. It does not enforce "kit first, then game". | "Leave the settings." The rule then rests on `CLAUDE.md` alone, and one squash repeats today's unreachable pin. |
@@ -352,7 +366,7 @@ What gets built: in `game-kit`, by this spec's builder, on one branch and one pu
 - [ ] `git rev-parse IMPORT_OLD:kit` is `abb781ce590f02c2ba52bcd6418f40cfd0016c92` and `IMPORT_OLD:testing` is `a4430fdffbe8d1879fed58a743b489d24a52fc6e`. `git rev-parse IMPORT_NEW:kit` equals `git -C <cemetery-security> rev-parse <source commit>:web/kit` (`68d7cfe02cbebcae5a9f1d15aadbee2444fee9b1` for `50eecdc`), and `IMPORT_NEW:testing` is `a31a8cd033ddfbc7cbd6646dc38914b2f64bab40` for that source.
 - [ ] `git show --stat --format= IMPORT_OLD` names 25 files, all under `kit/` or `testing/`; the same for `IMPORT_NEW` names only files under those two folders. Each message carries the source repository, the full source commit and the source paths. `git diff IMPORT_NEW..HEAD -- kit testing` is empty, and `git ls-tree -r --name-only HEAD kit testing` lists exactly 25 files.
 - [ ] In a fresh clone, `npm ci && npm run check` passes: type check, lint with zero warnings, the 102 tests under `kit/` and `testing/`, and the tool's. `package.json` has no `dependencies` block and names neither `vite` nor `pixi.js`.
-- [ ] The tool's test builds its own source repo and pin in a temp folder and covers, by name: copy and record hashes; `--check` passing; `--check` failing on one changed byte and naming only that file; `--check` failing on a missing file; `--from --check` passing for a commit on `origin/main`; `--from --check` exiting 1 for a commit on a side branch only; exit 2 with one line when the checkout has no `origin/main`; exit 2 with one line when the checkout lacks the commit. `git grep -i cemetery -- tools/` returns nothing.
+- [ ] The tool's test builds its own source repo and pin in a temp folder and covers, by name: copy and record hashes; `--check` passing; `--check` failing on one changed byte and naming only that file; `--check` failing on a missing file; `--from --check` passing for a commit on `origin/main`; `--from --check` exiting 1 for a commit on a side branch only; plain `--from` for a commit on a side branch only copying, recording hashes, printing the not-on-main note and exiting 0; exit 2 with one line when the checkout has no `origin/main`, for `--from` and for `--from --check`, with nothing written; exit 2 with one line when the checkout lacks the commit; a pin whose commit lacks one `copies` entry exiting 2 with one line and leaving every game file and the pin byte-identical; `--check` alone on a pin with no `sha256` exiting 2 with one line. No case prints a stack trace. `git grep -i cemetery -- tools/` returns nothing.
 - [ ] The README states the merge rule, that the on-main check is evidence and not a gate, the seven pull request items, and flows (a), (b) and (c) as numbered steps. `CLAUDE.md` carries the merge rule.
 - [ ] `CONTRACT.md` arrives in two commits. The first matches the section headed "The host contract" in `cemetery-security:specs/web-game-kit.md` at the source commit, except the heading level and the import path in the usage example. At the head, `git grep -n -i -E 'should inherit|own origin|Theme by inheritance|export interface' CONTRACT.md` returns nothing, and its first paragraph says it replaces that section.
 
