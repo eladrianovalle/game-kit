@@ -40,8 +40,9 @@ played mostly by tapping places on a grid, so it also says what such a game need
 build a cursor a pad can move, and which of the port's own pieces should move into the kit later.
 
 **This spec builds on `specs/game-kit.md`**, the plan that moves the kit into this repo. That plan's
-pull request is open as this is written. Nothing here can start until its first unit,
-`gk_kit_on_main`, has merged.
+pull request is open as this is written. Nothing here can start until two of its units have
+merged: `gk_kit_on_main`, which puts the kit here, and `gk_cs_adopts`, which lets Cemetery Security
+pin a kit branch and so supply the evidence a kit change needs.
 
 ## Architecture at a Glance
 
@@ -75,6 +76,20 @@ then again after a wait", which a cursor or a menu needs and which a held key ca
 ## How It Works (Technical)
 
 Three new kit files and one new test helper. **No existing kit file is edited.**
+
+### Where the games were read
+
+Every statement this spec makes about a game or about today's kit was read at one of these commits.
+
+| Repo | Commit | What was read there |
+|---|---|---|
+| `cemetery-security` | `50eecdc016ab2e0f78cd5726c7485859c79198f7` | Today's kit, as `specs/game-kit.md` imports it: `web/kit/actions.ts`, `keyboard.ts`, `touch.ts` (`PadDirection`, `padDirection`), `page.ts` (`UnlockableSoundContext`). |
+| `cemetery-security` | `39654d7e165fa3635be02571d64025ff16c7d182` (`dev`) | The game: `web/game/mount-game.ts` (the pause menu reads `pressed.up`, `pressed.down` and `pressed.action`; `releaseAll` is called on a screen change only), `web/game/browser-environment.ts`, `web/game/sound.ts` (effects only: no music, groups or suspend), and the four files listed for it under "What changes for each game". `web/kit` is unchanged from `50eecdc`. |
+| `into-the-dark-web` | `404ba2a93968440c5f164605a5f0c77fcac0d346` (`build/parity`, the working branch) | `game/pointer.ts` (`gestureAction`, `tapAction`), `game/mount-game.ts` (`isCapturing`, the paused frame, the visibility handler, `releaseAll` on a screen change only), `game/browser-environment.ts`, `game/sound/sound.ts` (suspends its context on a hidden tab), `game/actions.ts`, `game/replay.ts`, `game/content/web-only.ts`, `tools/replay.mjs`, and `specs/into-the-dark-web-parity.md` (unit 8, `itdp_controls_page`). |
+
+Two things named below do not exist at that Into The Dark commit: `game/cursor.ts`, which this
+spec asks for, and the Controls page, which is planned as unit 8 of that repo's parity spec and
+not yet built.
 
 ### `kit/bindings.ts` (pure)
 
@@ -198,7 +213,15 @@ Behaviour the tests hold:
   `stick-*` input at a time. The d-pad is buttons 12 to 15 and is bound separately from the stick,
   so a game can give them different jobs.
 - **Gated like a key.** `isCapturing(action)` is asked before a press, so a pad cannot press an
-  action on a screen where the game refuses the same key.
+  action on a screen where the game refuses the same key. A refused press is still recorded as the
+  input being down, so a button held while the game starts capturing again does not press: it must
+  be let go and pressed. A key behaves the same way, because a held key's repeats are not presses.
+- **How the stick is read.** The y axis is negative upward, as the browser gives it. With no
+  direction held, the axis with the larger absolute value gives the direction once that value
+  reaches `STICK_PRESS`; on a tie it is the horizontal one. A held direction is kept while its own
+  axis, measured toward that direction, stays above `STICK_RELEASE`, unless the other axis has
+  reached `STICK_PRESS` and is at least `STICK_SWITCH` times the held one, which switches to it.
+  Release is measured on the held axis alone, not on the stick's distance from centre.
 - **Nothing on the page.** No listeners, no connect events, no timers. A `getGamepads` that throws
   (a permissions policy forbids it, or the page is not served securely) is read as no pads.
 - **Disconnect and dispose.** An active pad that is gone, or whose `connected` is false, has its
@@ -287,7 +310,10 @@ confirm at `tapAction` alone would make a pad cast differ from a tap cast.
 
 ### What changes for each game
 
-**Nothing unless it opts in.** A game that moves its pin and edits nothing runs no new code. Under
+**Nothing unless it opts in.** A game that moves its pin and edits nothing runs no new code in
+play. Its check does more: `kit` and `testing` are copied as whole folders, so the new files, the
+fake pad and their tests arrive with the pin, compile under the game's own `tsc` (TypeScript 7 in
+Cemetery Security), run in its `vitest`, and in Into The Dark are linted with zero warnings. Under
 `specs/game-kit.md`'s definition ("a game must edit its own code to adopt, or will behave
 differently without editing anything") this change is **not breaking**. `CONTRACT.md` does not
 change. The default that keeps the old behaviour is not calling the new functions.
@@ -307,7 +333,7 @@ By file, **Cemetery Security:** `web/game/actions.ts`, `web/game/browser-environ
 `web/game/mount-game.ts`, `web/game/testing/fake-environment.ts`. **Into The Dark:**
 `game/actions.ts` (the table, plus cursor, confirm and cancel actions), `game/browser-environment.ts`,
 `game/mount-game.ts`, `game/pointer.ts` (the split described above), a new `game/cursor.ts`, its
-Controls page (rows from `controlsRows`), `game/content/web-only.ts` (the repeat numbers, with
+Controls page once built (rows from `controlsRows`), `game/content/web-only.ts` (the repeat numbers, with
 their reason: the Unity game has no pad), and its pin.
 
 ### Failure modes
@@ -326,8 +352,10 @@ their reason: the Unity game has no pad), and its pin.
 
 ### Dependencies
 
-- `specs/game-kit.md`: `gk_kit_on_main` merged before unit 1; `gk_cs_adopts` merged before unit 2
-  can gather its evidence.
+- `specs/game-kit.md`: `gk_kit_on_main` and `gk_cs_adopts` merged before units 1 and 2, whose
+  evidence comes from Cemetery Security.
+- Into The Dark's pin on a `game-kit` `main` commit that holds the newer screen navigation, before
+  unit 3, whose evidence comes from Into The Dark.
 - The browser Gamepad API, with the `standard` mapping.
 - The kit's own `Actions`, `KeyBindings` and `PadDirection`. No new library.
 
@@ -359,11 +387,13 @@ this spec is where he does.
 - **Only the bindings table moves into the kit now.** Both games already hold the same facts
   twice, and the pad needs the table. Everything else the Into The Dark port built stays, with a
   condition named for when it should move (see the inventory).
-- **Cemetery Security is the game that proves the pad.** `specs/game-kit.md` asks a kit pull
-  request to name the game that needs it and the kit commit that game pinned. Cemetery Security can
-  pin a kit branch as soon as `gk_cs_adopts` has merged, and its pause menu already works from
-  pressed actions. Into The Dark cannot pin a newer kit until it has taken the newer screen
-  navigation, which is its own work.
+- **Cemetery Security supplies the evidence for units 1 and 2; Into The Dark for unit 3.**
+  `specs/game-kit.md` asks a kit pull request for the kit commit a game pinned and that game's
+  `npm run check` there. Cemetery Security can pin a kit branch as soon as `gk_cs_adopts` has
+  merged, its pause menu already works from pressed actions, and its pin is the first time the new
+  files compile under TypeScript 7. Into The Dark asked for the table, but cannot pin a newer kit
+  until it has taken the newer screen navigation, so it is not made to do that first for units 1
+  and 2. Unit 3 is for its menus alone, so there it must.
 - **A pad press is treated as not unlocking sound or full screen.** (Assumed; to be confirmed in
   three browsers.) The design does not depend on the answer either way.
 
@@ -436,22 +466,29 @@ design depends only on the items marked.
    whether he has a pad to do it with. If not, the alternative is to merge on Node tests and say
    plainly in the pull request that nothing was watched.
 3. **Into The Dark and the newer screen navigation.** It cannot take any kit change from `main`
-   until it adopts that navigation (`specs/game-kit.md`, risk 1). *This spec:* does not need it,
-   because Cemetery Security is the evidence game. *Recommended:* Into The Dark moves its pin in a
-   pull request of its own first, so a scroll regression is not mixed in with the pad, the cursor
-   and the Controls page.
+   until it adopts that navigation (`specs/game-kit.md`, risk 1). *This spec:* units 1 and 2 do not
+   need it, because Cemetery Security is their evidence game; unit 3 does, and waits for it.
+   *Recommended:* Into The Dark moves its pin in a pull request of its own first, so a scroll
+   regression is not mixed in with the pad, the cursor and the Controls page.
 
 ## Build Plan
 
 All units are built in `game-kit` and gated by its `npm run check`. Each unit's pull request
-carries the seven items `specs/game-kit.md` asks of a kit change.
+carries the seven items `specs/game-kit.md` asks of a kit change. Item 2, the game that needs the
+change, and item 4, the game whose pin and `npm run check` are the evidence, are named per unit,
+because for units 1 and 2 they are different games. No issue or pull request in Into The Dark asks
+for this work; the request is unit 8 (`itdp_controls_page`) of its
+`specs/into-the-dark-web-parity.md` at `404ba2a`, which item 2 links.
 
 ### 1. `gk_bindings_table` — a game writes one table and gets its key bindings and Controls rows from it
 
-**Precondition:** `game-kit` `main` already holds the kit (`gk_kit_on_main` has merged).
+**Precondition:** `game-kit` `main` already holds the kit (`gk_kit_on_main` has merged), and
+`gk_cs_adopts` has merged so Cemetery Security can pin the kit branch.
 
-What gets built: `kit/bindings.ts` and its test. The asking game is Into The Dark, whose Controls
-page is built from one table of this shape.
+What gets built: `kit/bindings.ts` and its test. The asking game is Into The Dark, whose planned
+Controls page is to be built from one table of this shape. The evidence game is Cemetery Security:
+it pins the kit branch, edits nothing else, and runs `npm run check`, which compiles the new file
+under TypeScript 7 and runs its test.
 
 **Acceptance criteria:**
 
@@ -459,14 +496,15 @@ page is built from one table of this shape.
 - [ ] A table that gives one key, or one pad input, to two actions throws an error naming the input and both actions.
 - [ ] `controlsRows` returns rows in the given order with labels from `keyLabel` and `padLabel`, and a label passed in replaces the default.
 - [ ] `padLabel` has a non-empty label for every `PadInput`, held by a test that walks the list.
+- [ ] `keyLabel` gives 'Up arrow' for `ArrowUp`, 'W' for `KeyW`, '1' for `Digit1` and 'Space' for `Space`, and returns a code it does not know, such as `IntlBackslash`, unchanged.
 - [ ] No file that existed before this unit is changed.
 
 **Out of scope:** any game's table; reading a pad.
 
 ### 2. `gk_gamepad_source` — a standard pad presses and releases a game's actions, and a held direction repeats
 
-**Precondition:** unit 1 has merged, and `gk_cs_adopts` has merged so Cemetery Security can pin the
-kit branch as evidence (open question 2).
+**Precondition:** unit 1 has merged. The evidence game is Cemetery Security, as in unit 1, here
+with the pad wired in on a draft pull request (open question 2).
 
 What gets built: `kit/gamepad.ts`, `kit/repeat.ts`, `testing/fake-gamepads.ts`, and their tests.
 
@@ -475,15 +513,19 @@ What gets built: `kit/gamepad.ts`, `kit/repeat.ts`, `testing/fake-gamepads.ts`, 
 - [ ] A held fake button gives `pressed` for one `take` and `held` until released; two `poll` calls before one `take` give one press; after `actions.releaseAll()` a button still held does not press again until it is released and pressed.
 - [ ] The fake returns new frozen snapshots on every `getGamepads` call and `null` in a disconnected slot, and a test shows a button already down when a pad is first seen presses once.
 - [ ] No pad is active until one of its buttons goes down; with two pads only the active one feeds actions; a button on the other takes over after the first pad's holds are released; a stick alone does not take over.
-- [ ] `stickDirection` gives no direction below `STICK_PRESS`, keeps a held direction down to `STICK_RELEASE`, and for a stick wobbling between two named positions either side of a diagonal does not alternate between two directions.
-- [ ] An action `isCapturing` refuses is not pressed and is still released; a non-standard pad gives no action and a `status()` of `'unsupported'`; a disconnect mid-hold, `dispose`, and a throwing `getGamepads` each leave nothing held.
-- [ ] `createRepeat` fires on the first held step, on the step `delaySteps` later, then every `intervalSteps`, and a new direction or `null` starts over; `kit/gamepad.ts` contains no `addEventListener`.
+- [ ] `stickDirection(0.49, 0, null)` is null and `(0.5, 0, null)` is `'right'`; with `'right'` held, `(0.31, 0)` stays `'right'` and `(0.3, 0)` is null; a stick moved from `(0.8, -0.7)` to `(0.7, -0.8)` and back, starting from null, gives `'right'` every time; with `'right'` held, `(0.4, -0.9)` gives `'up'`.
+- [ ] An action `isCapturing` refuses is not pressed and is still released; a button that went down while its action was refused does not press when capturing turns back on, and does press once it is released and pressed again, so a source that records only accepted presses fails; a non-standard pad gives no action and a `status()` of `'unsupported'`; a disconnect mid-hold, `dispose`, and a throwing `getGamepads` each leave nothing held.
+- [ ] `createRepeat` fires on the first held step, on the step `delaySteps` later, then every `intervalSteps`, and a new direction or `null` starts over; `kit/gamepad.ts` contains none of `addEventListener`, `setTimeout`, `setInterval` and `requestAnimationFrame`.
 
 **Out of scope:** the browser checks under Risks (they are the owner's, with a pad); any game's wiring; a cursor.
 
 ### 3. `gk_pad_menu_focus` — a pad player can move through a screen's buttons and press one
 
 **Open question 1 decides whether this unit is built.** Cutting it changes nothing in units 1 and 2.
+
+**Precondition:** unit 2 has merged, and Into The Dark's pin names a `game-kit` `main` commit that
+holds the newer screen navigation (open question 3). Into The Dark is both the asking game and the
+evidence game: its menus are page HTML, and what the unit does can only be watched there.
 
 What gets built: `kit/menu.ts` and its test.
 
