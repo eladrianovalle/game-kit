@@ -7,6 +7,7 @@
 //   side    edits kit again                      on no branch that origin/main holds
 
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
@@ -272,7 +273,10 @@ describe('sync-kit.mjs --from <checkout> --check: compare with the pinned commit
   it('exits 1 and names the file when a file differs from the pinned commit, even if its recorded hash was edited to agree', () => {
     const game = syncedGame(source.second);
     writeFiles(game, { 'kit/actions.ts': 'edited by hand\n' });
-    expect(run(game, '--check').status).toBe(1);
+    const pin = readPin(game);
+    const editedHash = createHash('sha256').update('edited by hand\n').digest('hex');
+    writeFileSync(join(game, 'kit', 'KIT_SOURCE.json'), `${JSON.stringify({ ...pin, sha256: { ...pin.sha256, 'kit/actions.ts': editedHash } }, null, 2)}\n`);
+    expect(run(game, '--check').status).toBe(0);
 
     const result = run(game, '--from', source.checkout, '--check');
     expect(result.status).toBe(1);
