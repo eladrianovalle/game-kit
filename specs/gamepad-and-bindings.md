@@ -75,7 +75,7 @@ then again after a wait", which a cursor or a menu needs and which a held key ca
 
 ## How It Works (Technical)
 
-Three new kit files and one new test helper. **No existing kit file is edited.**
+Three new kit files, or four with unit 3, and one new test helper. **No existing kit file is edited.**
 
 ### Where the games were read
 
@@ -190,7 +190,7 @@ export function bindGamepad<A extends string>(config: {
   actions: Actions<A>;
   bindings: PadBindings<A>;
   environment: GamepadEnvironment;
-  /** As `bindKeyboard`'s: may this action be pressed now? A press is asked; a release never is. */
+  /** May this action be pressed now? A press is asked; a release never is. See "Gated like a key while in play". */
   isCapturing(action: A): boolean;
 }): BoundGamepad;
 ```
@@ -212,16 +212,24 @@ Behaviour the tests hold:
 - **The stick has hysteresis.** Axes 0 and 1 go through `stickDirection`, and the result holds one
   `stick-*` input at a time. The d-pad is buttons 12 to 15 and is bound separately from the stick,
   so a game can give them different jobs.
-- **Gated like a key.** `isCapturing(action)` is asked before a press, so a pad cannot press an
-  action on a screen where the game refuses the same key. A refused press is still recorded as the
-  input being down, so a button held while the game starts capturing again does not press: it must
-  be let go and pressed. A key behaves the same way, because a held key's repeats are not presses.
+- **Gated like a key while in play.** `isCapturing(action)` is asked before a press. It is the
+  pad's own: on the screens where the game is in play it must refuse every action the keyboard's
+  refuses, so a pad cannot press an action there that the same key cannot. Off those screens a game
+  that drives its menus with the pad (unit 3) also lets through the menu actions it chose, where the
+  keyboard's refuses everything because the keys belong to the page. A game without unit 3 passes
+  the keyboard's function unchanged. A refused press is still recorded as the input being down, so
+  a button held while the game starts capturing again does not press: it must be let go and
+  pressed. A key behaves the same way, because a held key's repeats are not presses.
 - **How the stick is read.** The y axis is negative upward, as the browser gives it. With no
   direction held, the axis with the larger absolute value gives the direction once that value
   reaches `STICK_PRESS`; on a tie it is the horizontal one. A held direction is kept while its own
   axis, measured toward that direction, stays above `STICK_RELEASE`, unless the other axis has
   reached `STICK_PRESS` and is at least `STICK_SWITCH` times the held one, which switches to it.
-  Release is measured on the held axis alone, not on the stick's distance from centre.
+  Release is measured on the held axis alone, not on the stick's distance from centre. When the
+  held direction is let go, the same call reads the stick again as if none were held, so a stick
+  reversed on its own axis gives the new direction at once: with `'right'` held,
+  `stickDirection(-0.8, 0, 'right')` is `'left'`, and the source releases `stick-right` before it
+  presses `stick-left` in that one `poll`.
 - **Nothing on the page.** No listeners, no connect events, no timers. A `getGamepads` that throws
   (a permissions policy forbids it, or the page is not served securely) is read as no pads.
 - **Disconnect and dispose.** An active pad that is gone, or whose `connected` is false, has its
@@ -323,7 +331,9 @@ To adopt, a game:
 1. Writes its `Bindings` table and derives `KEY_BINDINGS` from it, deleting its hand-written key
    list and key-name list.
 2. Adds `getGamepads` to its browser environment and its fake.
-3. Calls `bindGamepad` where it calls `bindKeyboard`, with the same `isCapturing`, and disposes it.
+3. Calls `bindGamepad` where it calls `bindKeyboard`, and disposes it. Its `isCapturing` is the
+   keyboard's, unless the game uses unit 3; then it also allows the chosen menu actions off the
+   screens where the game is in play, and nowhere else (see unit 3).
 4. Puts `pad.poll()` directly before every `actions.take()`.
 5. **Adds `actions.releaseAll()` to its tab-visibility handler.** Neither game does this today.
    Keys are let go by `bindKeyboard`'s window `blur`; a pad hold would survive a hidden tab. The
@@ -382,6 +392,12 @@ this spec is where he does.
   button has no page job to stop. But `bindKeyboard` uses it to decide whether to press at all, and
   Into The Dark's paused frame trusts that gate, so a pad without it could un-pause a run from a
   screen where no key can.
+- **The pad's gate is its own, and matches the keyboard's while in play.** (Assumed.) Into The
+  Dark's keyboard gate refuses every action off the Play screen on purpose, because there the keys
+  belong to the page. Given the same gate, a pad would press nothing on the screens unit 3 is for.
+  So a game using unit 3 widens the pad's gate on its menu screens to the menu actions it chose, and
+  leaves it equal to the keyboard's in play, which keeps the reason above: a pad still cannot
+  un-pause a run from a screen where no key can.
 - **The tile cursor is the game's, for now.** (Assumed, following the owner's rule in
   `specs/game-kit.md`: shared things move once two games have shown what is really common.)
 - **Only the bindings table moves into the kit now.** Both games already hold the same facts
@@ -503,8 +519,12 @@ under TypeScript 7 and runs its test.
 
 ### 2. `gk_gamepad_source` — a standard pad presses and releases a game's actions, and a held direction repeats
 
-**Precondition:** unit 1 has merged. The evidence game is Cemetery Security, as in unit 1, here
-with the pad wired in on a draft pull request (open question 2).
+**Precondition:** unit 1 has merged. The asking game is Into The Dark, whose owner wants
+controller support after the Controls page. No issue or spec unit there asks for the pad itself:
+unit 8 of its parity spec at `404ba2a` puts "a gamepad" out of its own scope as coming "through the
+kit", so item 2 links that line and the debate this spec came from (`studio_run`). The evidence game
+is Cemetery Security, as in unit 1, here with the pad wired in on a draft pull request (open
+question 2).
 
 What gets built: `kit/gamepad.ts`, `kit/repeat.ts`, `testing/fake-gamepads.ts`, and their tests.
 
@@ -513,9 +533,10 @@ What gets built: `kit/gamepad.ts`, `kit/repeat.ts`, `testing/fake-gamepads.ts`, 
 - [ ] A held fake button gives `pressed` for one `take` and `held` until released; two `poll` calls before one `take` give one press; after `actions.releaseAll()` a button still held does not press again until it is released and pressed.
 - [ ] The fake returns new frozen snapshots on every `getGamepads` call and `null` in a disconnected slot, and a test shows a button already down when a pad is first seen presses once.
 - [ ] No pad is active until one of its buttons goes down; with two pads only the active one feeds actions; a button on the other takes over after the first pad's holds are released; a stick alone does not take over.
-- [ ] `stickDirection(0.49, 0, null)` is null and `(0.5, 0, null)` is `'right'`; with `'right'` held, `(0.31, 0)` stays `'right'` and `(0.3, 0)` is null; a stick moved from `(0.8, -0.7)` to `(0.7, -0.8)` and back, starting from null, gives `'right'` every time; with `'right'` held, `(0.4, -0.9)` gives `'up'`.
+- [ ] `stickDirection(0.49, 0, null)` is null and `(0.5, 0, null)` is `'right'`; with `'right'` held, `(0.31, 0)` stays `'right'` and `(0.3, 0)` is null; a stick moved from `(0.8, -0.7)` to `(0.7, -0.8)` and back, starting from null, gives `'right'` every time; with `'right'` held, `(0.4, -0.9)` gives `'up'` and `(-0.8, 0)` gives `'left'`; a fake stick moved from `(0.8, 0)` to `(-0.8, 0)` between two `poll` calls releases `stick-right` and presses `stick-left` in the second one.
 - [ ] An action `isCapturing` refuses is not pressed and is still released; a button that went down while its action was refused does not press when capturing turns back on, and does press once it is released and pressed again, so a source that records only accepted presses fails; a non-standard pad gives no action and a `status()` of `'unsupported'`; a disconnect mid-hold, `dispose`, and a throwing `getGamepads` each leave nothing held.
 - [ ] `createRepeat` fires on the first held step, on the step `delaySteps` later, then every `intervalSteps`, and a new direction or `null` starts over; `kit/gamepad.ts` contains none of `addEventListener`, `setTimeout`, `setInterval` and `requestAnimationFrame`.
+- [ ] No file that existed before this unit is changed.
 
 **Out of scope:** the browser checks under Risks (they are the owner's, with a pad); any game's wiring; a cursor.
 
@@ -543,7 +564,27 @@ Controls are enabled buttons, links, inputs and selects inside `scope()`, in doc
 skipping anything under a `hidden` element. `next` and `previous` wrap. `activate` calls `click()`
 on the focused control. A game calls these from pressed actions it chooses (for example d-pad up
 and down, and the bottom button), on the frames where it is not in play, with `pad.poll()` before
-its `take()` as everywhere else.
+its `take()` as everywhere else. The kit clock calls `draw` on every frame even while it is not
+running, so those frames exist off the Play screen.
+
+Those presses only arrive if the pad's gate lets them through. Into The Dark's keyboard gate
+refuses every action off the Play screen, so the game gives the pad a gate of its own:
+
+```ts
+// The actions it already gives the d-pad and the bottom button: one pad input has one action.
+const MENU_ACTIONS: ReadonlySet<Action> = new Set(['up', 'down', 'confirm']);
+const pad = bindGamepad({
+  actions,
+  bindings: padBindingsFrom(BINDINGS),
+  environment,
+  // In play, exactly the keyboard's gate; elsewhere, also the menu actions and nothing else.
+  isCapturing: (action) => isCapturing(action) || (currentScreen !== 'play' && MENU_ACTIONS.has(action)),
+});
+```
+
+The keyboard keeps its own gate, so the page still owns the keys on a menu screen. A menu action
+still held when the screen changes to Play is let go by the game's `releaseAll` on a screen change,
+and the edge compare does not press it again.
 
 **Acceptance criteria:**
 
@@ -551,6 +592,9 @@ its `take()` as everywhere else.
 - [ ] With three buttons, `next` focuses them in document order and wraps, and `previous` reverses; with nothing focused in scope they focus the first and the last.
 - [ ] A disabled button and a button under a `hidden` element are skipped.
 - [ ] `activate` clicks the focused control once, and does nothing when focus is outside `scope()` or `scope()` is null.
+- [ ] A test wires a fake pad through `bindGamepad`, with a gate built as above from a keyboard gate that refuses every action off a toy Play screen, into `createMenuFocus`: on a menu screen, d-pad down moves focus and the bottom button clicks the focused button; on the Play screen, an action the keyboard gate refuses (as Into The Dark's refuses `advance` while paused) is not pressed by the pad either.
+- [ ] Into The Dark's evidence pull request shows a pad moving focus on the Title screen and pressing New Game.
 - [ ] The file adds no listener and no element.
+- [ ] No file that existed before this unit is changed.
 
 **Out of scope:** left and right, grids, focus styling, full screen, which pad buttons a game uses for it.
