@@ -3,7 +3,7 @@ feature: game-kit, the shared web game kit in its own repo
 slug: game-kit
 ticket: https://github.com/eladrianovalle/game-kit/issues/1
 # status: draft → approved (a human approved it) → shipped (built AND verified)
-status: draft
+status: approved
 # studio_run: the debate this spec came from. It ran in the site repo.
 studio_run: OrcPunk-dotcom .studio/output/tech/run_tech_20261013_160042
 # verification_due: the date the evidence is due (YYYY-MM-DD). Required once this spec is

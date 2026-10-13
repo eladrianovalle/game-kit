@@ -3,7 +3,7 @@ feature: Gamepad input and one bindings table for the web game kit
 slug: gamepad-and-bindings
 ticket: none
 # status: draft → approved (a human approved it) → shipped (built AND verified)
-status: draft
+status: approved
 # studio_run: the debate this spec came from. It ran in the Into The Dark web port's repo.
 studio_run: into-the-dark-web .studio/output/tech/run_tech_20261013_172646
 # verification_due: the date the evidence is due (YYYY-MM-DD). Required once this spec is
