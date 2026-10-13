@@ -74,6 +74,11 @@ describe('keyBindingsFrom', () => {
     expect(() => keyBindingsFrom(table)).toThrow("The key 'KeyW' is given to two actions: 'up' and 'use'.");
   });
 
+  it('does not throw when one action lists the same key twice', () => {
+    const table: Bindings<Action> = { ...TABLE, use: { label: 'Use', keys: ['Space', 'Space'] } };
+    expect(keyBindingsFrom(table).Space).toBe('use');
+  });
+
   it('leaves out an action that has no keys', () => {
     const table: Bindings<'up' | 'use'> = { up: { label: 'Step up', keys: ['KeyW'] }, use: { label: 'Use', pad: ['south'] } };
     expect(keyBindingsFrom(table)).toEqual({ KeyW: 'up' });
@@ -103,12 +108,6 @@ describe('controlsRows', () => {
       { action: 'use', label: 'Use', keys: ['Space'], pad: [], touch: null },
       { action: 'up', label: 'Step up', keys: ['Up arrow', 'W'], pad: ['D-pad up', 'Stick up'], touch: 'Swipe up' },
     ]);
-  });
-
-  it('labels each key with keyLabel and each pad input with padLabel', () => {
-    const [row] = controlsRows(TABLE, ['up']);
-    expect(row!.keys).toEqual(TABLE.up.keys!.map(keyLabel));
-    expect(row!.pad).toEqual(TABLE.up.pad!.map(padLabel));
   });
 
   it('prints only the actions asked for', () => {

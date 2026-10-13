@@ -46,12 +46,12 @@ function actionByInput<A extends string>(
   return actionFor;
 }
 
-/** Today's `KeyBindings`, for `bindKeyboard`. Throws if one key is given to two actions. */
+/** The `KeyBindings` that `bindKeyboard` takes. Throws if one key is given to two actions. */
 export function keyBindingsFrom<A extends string>(table: Bindings<A>): KeyBindings<A> {
   return Object.fromEntries(actionByInput(table, 'key', (binding) => binding.keys));
 }
 
-/** For `bindGamepad`. Throws if one pad input is given to two actions. */
+/** Pad input to action. Throws if one pad input is given to two actions. */
 export function padBindingsFrom<A extends string>(table: Bindings<A>): PadBindings<A> {
   return Object.fromEntries(actionByInput(table, 'pad input', (binding) => binding.pad));
 }
