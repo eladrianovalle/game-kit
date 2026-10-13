@@ -8,7 +8,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   // .claude/ and .studio/ hold Studio's workflow scripts, which are not this repo's code.
-  { ignores: ['dist/', 'node_modules/', '.studio/', '.claude/'] },
+  { ignores: ['node_modules/', '.studio/', '.claude/'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -19,10 +19,10 @@ export default tseslint.config(
     },
   },
   {
-    // Node scripts and config: plain JavaScript, Node globals.
-    files: ['tools/**/*.mjs', 'eslint.config.js'],
+    // Node scripts: plain JavaScript, Node globals.
+    files: ['tools/**/*.mjs'],
     languageOptions: {
-      globals: { console: 'readonly', process: 'readonly', Buffer: 'readonly' },
+      globals: { console: 'readonly', process: 'readonly' },
     },
   },
 );
