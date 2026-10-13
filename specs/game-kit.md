@@ -112,7 +112,7 @@ git add kit testing && git commit
 | Name | Source commit in `cemetery-security` | What it is |
 |---|---|---|
 | `IMPORT_OLD` | `1a9a2e55bc07f422c8abd98b4705199dabdc56c4` | The tree Into The Dark is pinned to. On branch `feat/web-game-kit` only. |
-| `IMPORT_NEW` | `50eecdc016ab2e0f78cd5726c7485859c79198f7` | `origin/dev` when the spec was written. `dev` has since moved to `39654d7`, with the kit, the helpers and the contract's source file unchanged, so either commit gives the same import and the same `CONTRACT.md`. If `dev` has moved again on the day, the builder uses its head and first checks that `specs/web-game-kit.md` is unchanged from `50eecdc`; if it is not, `CONTRACT.md` is taken from `50eecdc`. |
+| `IMPORT_NEW` | `50eecdc016ab2e0f78cd5726c7485859c79198f7` | `origin/dev` when the spec was written. `dev` has since moved to `39654d7`, with the kit, the helpers and the contract's source file unchanged, so either commit gives the same import and the same `CONTRACT.md`. If `dev` has moved again on the day, the builder uses its head only if `web/kit`, the eight helper files and `specs/web-game-kit.md` are all unchanged from `50eecdc`; otherwise the import and `CONTRACT.md` both come from `50eecdc`, so the 102 tests in unit 1, the `IMPORT_NEW` stat line and the second message's "what changed since the first" still hold. Any later kit edit there reaches `game-kit` through Cemetery Security's hand-off, which lists it at step 3. |
 
 `IMPORT_OLD` and `IMPORT_NEW` stand for the two import commits' own hashes in `game-kit`; they are not refs, so substitute the hashes in the commands below or tag them locally. They are the first two commits on the branch, in that order. Nothing has to sit between them and the branch is never reordered. Each message carries the source repository (`eladrianovalle/cemetery-security`), the full source commit, the source paths, a line saying the copy is byte for byte, and where the earlier history lives (branch `feat/web-game-kit` and pull request #735 there). The second also says what changed since the first: `screens.ts` scrolls only when none of the game is on screen and focuses without scrolling (commit `0e55fe2` on `feat/web-game-kit`, which reached `dev` in the squash `497a92b`, pull request #735).
 
@@ -132,7 +132,7 @@ git -C game-kit show --stat --format= IMPORT_OLD   # 25 files, all under kit/ or
 git -C game-kit show --stat --format= IMPORT_NEW   # kit/screens.ts, kit/screens.test.ts, testing/fake-history.ts
 ```
 
-Into The Dark's `kit` folder cannot be compared whole, because it also holds the pin file; its 17 kit files at `c0220ab` were compared one by one with `web/kit` at `1a9a2e5` and match: `git ls-tree c0220ab kit/` without the pin line lists the same 17 blob hashes as `git -C "$CS" ls-tree 1a9a2e5 web/kit/`. The tests under `kit/` and `testing/` number 98 at `IMPORT_OLD` (89 and 9) and 102 at `IMPORT_NEW` (93 and 9).
+Into The Dark's `kit` folder cannot be compared whole, because it also holds the pin file; its 17 kit files at `c0220ab` were compared one by one with `web/kit` at `1a9a2e5` and match: `git -C into-the-dark-web ls-tree c0220ab kit/` without the pin line lists the same 17 blob hashes as `git -C "$CS" ls-tree 1a9a2e5 web/kit/`. The tests under `kit/` and `testing/` number 98 at `IMPORT_OLD` (89 and 9) and 102 at `IMPORT_NEW` (93 and 9).
 
 ### The pin file
 
@@ -197,7 +197,7 @@ Steps, run in `web/` (the tool treats the folder above `tools/` as its root, so 
 
 **If step 3 lists a file under `kit/` or `testing/`**, the kit was edited here after the import. Nothing has been copied, so nothing is lost. Take the edit as a diff against the second import's source commit, from the repo root and naming the kit's own files only (`web/testing/` also holds this game's own tests): `git diff <source commit>..HEAD -- web/kit web/testing/fake-history.ts web/testing/fake-page.ts web/testing/fake-time.ts web/testing/imports.ts web/testing/imports.test.ts web/testing/literals.ts web/testing/literals.test.ts web/testing/recording-target.ts`. Open it as an ordinary kit pull request (flow (a) below), and once it is on `main` pin that commit and start again from step 3.
 
-`.github/workflows/web.yml` needs no change: it already runs `npm run check` for any change under `web/`.
+`.github/workflows/web.yml` needs no change: it already runs `npm run check` on pull requests that change anything under `web/`. It does not run on pushes, so a direct push to `dev` is not hash-checked until the next pull request.
 
 ### Hand-off: Into The Dark
 
