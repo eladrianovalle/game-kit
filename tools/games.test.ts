@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { CannotTell, GAMES_FILE, pinPath, readGames, setPinCommit, tryKitInGame } from './games.mjs';
+import { CannotTell, GAMES_FILE, pinPath, readGames, setPinCommit } from './games.mjs';
 
 const TOOLS_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPO_DIRECTORY = join(TOOLS_DIRECTORY, '..');
@@ -234,9 +234,9 @@ describe('games.mjs try: the games check steps, against a tiny game-kit and a ti
     expect(check.status, check.stderr).toBe(0);
   });
 
-  it('works for a game whose root is the checkout itself, called as a function', () => {
+  it('works for a game whose root is the checkout itself', () => {
     const game = gameSyncedAtOlder('.');
-    expect(tryKitInGame({ game, root: '.', commit: source.underTest, from: source.checkout })).toBe(0);
+    expect(run('try', '--game', game, '--root', '.', '--commit', source.underTest, '--from', source.checkout).status).toBe(0);
     expect(readFileSync(join(game, 'kit/screens.ts'), 'utf8')).toBe('export const screens = 1;\n');
   });
 
