@@ -235,6 +235,40 @@ describe('screens and the page\'s scroll', () => {
     }
   });
 
+  it('with scrollWhenTopHidden, the bar is read from the scroll target: a root inside the host\'s element sees it only when the game names that element', () => {
+    for (const [namesHost, scrolled] of [
+      [false, false],
+      [true, true],
+    ] as const) {
+      const { document, hostElement } = createFakePage();
+      hostElement.style.scrollMarginTop = '56px';
+      const root = document.createElement('div');
+      hostElement.append(root);
+      const screen = (id: string, address: string): ScreenDef => ({
+        id,
+        address,
+        linkable: true,
+        replacesPrevious: false,
+        enter: () => ({ element: document.createElement('div') }),
+      });
+      const screens = createScreens({
+        root,
+        scrollTarget: namesHost ? hostElement : undefined,
+        scrollWhenTopHidden: true,
+        screens: [screen('menu', '/'), screen('short', '/short')],
+        fallback: 'menu',
+        onChange: () => {},
+        environment: createFakeHistory().environment,
+      });
+      // Both tops are under a 56 px bar. The margin is not inherited, so the root carries none.
+      placeElement(hostElement, { left: 0, top: 40, width: 800, height: 600 });
+      placeElement(root, { left: 0, top: 40, width: 800, height: 600 });
+      const { scrolls } = watchThePage(document, { root, host: hostElement });
+      screens.go('short');
+      expect(scrolls, `names the host's element: ${namesHost}`).toEqual(scrolled ? [['host', { block: 'start' }]] : []);
+    }
+  });
+
   it('judges by, and scrolls to, the scroll target when the game names one', () => {
     const { document, hostElement: stage } = createFakePage();
     const root = document.createElement('div');

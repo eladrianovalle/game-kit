@@ -1,7 +1,8 @@
 // Shows one of a game's declared screens at a time, keeps the URL fragment and
 // the browser's history in step with it, and moves focus to it. A screen change
 // is an instant swap, as a page load is. It scrolls the page only when none of
-// the game is on screen to see the change.
+// the game is on screen to see the change, unless the game sets
+// `scrollWhenTopHidden` and the game's top is out of sight.
 //
 // Each screen has an address, the part of the URL after `#`. Going to a screen
 // adds a history entry (or replaces the current one, for a screen that says
@@ -59,8 +60,12 @@ export function createScreens(config: {
    * target's top above the window, or under a host's sticky bar, though some
    * of it can be seen. For a game whose screens differ in height: after a
    * tall screen read from its bottom, a short one would otherwise arrive with
-   * its heading out of sight. The bar's height is the target's
-   * `scroll-margin-top`, which the host contract asks the host to set.
+   * its heading out of sight. The bar's height is the scroll target's own
+   * `scroll-margin-top`, the margin the browser keeps above the target when
+   * it scrolls there. The host contract puts that margin on the host's
+   * element and it is not inherited, so a game whose root sits inside the
+   * host's element names the host's element as `scrollTarget`; otherwise the
+   * bar counts as nothing.
    * Default: false, so a game whose screens share one stage is never scrolled
    * while any of it is in view.
    */
@@ -125,8 +130,9 @@ export function createScreens(config: {
 
     if (moveFocus) {
       // A visitor who can already see the game must not have the page moved
-      // under them, by the scroll or by the focus. One who has scrolled away
-      // from all of it is brought back to it.
+      // under them, by the scroll or by the focus, unless the game sets
+      // `scrollWhenTopHidden` and its top is out of sight. One who has
+      // scrolled away from all of it is brought back to it.
       const inView = isInView();
       if (!inView || (config.scrollWhenTopHidden === true && isTopHidden())) {
         scrollTarget.scrollIntoView({ block: 'start' });
