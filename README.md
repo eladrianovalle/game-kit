@@ -100,8 +100,9 @@ uncommitted work do not matter. It reads the clone as last fetched, so fetch fir
 
 **The on-main check is evidence, not a gate.** `--from --check` says whether a game's pin is on
 `origin/main`, and its output is pasted into the game's pull request for the owner to read. Nothing
-enforces it: a game's CI cannot reach this repo, and the hash check in a game's CI knows nothing of
-`main`. The control is the order the owner merges in.
+enforces it: a game's `npm run check` never reads this repo, and its hash check knows nothing of
+`main`. A pin the `kit-bump` bot moves always names `main`'s head. For a pin moved by hand, the
+control is the order the owner merges in.
 
 ## What a kit pull request must contain
 

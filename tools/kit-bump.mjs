@@ -293,7 +293,9 @@ export function runOnce({ game, root, kit, kitRepo, repo, base, merge, check = D
     report(summary, `the game's sync tool failed for game-kit ${head}; nothing was committed or pushed`);
     return 1;
   }
-  // The check runs the game's tests and every dependency's install script: it gets no token that can push.
+  // The check runs the game's tests and every dependency's install script: it gets no token in its
+  // environment. That is not isolation: actions/checkout keeps the repo token in the game's .git/config
+  // by default, and the check runs in that checkout, so it can still push.
   const { GH_TOKEN: _ghToken, GITHUB_TOKEN: _githubToken, ...checkEnv } = process.env;
   const result = spawnSync('bash', ['-c', check], { cwd: gameRoot, encoding: 'utf8', env: checkEnv });
   process.stdout.write(result.stdout ?? '');
