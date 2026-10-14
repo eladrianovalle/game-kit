@@ -62,8 +62,9 @@ Cemetery Security). `<game-kit>` is the path to a fetched clone of this repo.
 5. Commit the copied files and the pin together.
 
 To move to a newer kit later, by hand (the bot does this for every game on every merge): set `commit`
-to a newer commit on `main`, run step 3, run the game's `npm run check`, and play the game. If `tools/sync-kit.mjs` was among the copied files, run the
-command once more, so the new tool has done the copy.
+to a newer commit on `main`, run step 3, run the game's `npm run check`, and play the game. If
+`tools/sync-kit.mjs` was among the copied files, run the command once more, so the new tool has done
+the copy.
 
 A sync writes the files that exist at the pinned commit and deletes nothing. A file the kit has
 renamed or removed stays in the game until the game deletes it. A sync overwrites an uncommitted hand
@@ -135,12 +136,11 @@ merge them:
   it only once at least one check has reported and all have passed. If one fails, or none reports in
   time, it stays open with a comment saying why.
 
-**Marking a change `additive`.** Add the label `additive` to the kit pull request before it merges.
-Do it when an existing function called with the same arguments behaves as before, and name the
-default that keeps the old behaviour under item 3. The label only matters for a change to
-`kit/screens.ts` or `kit/page.ts`, whose behaviour shows only in a real browser: without it the bot
-holds every pin move so a person looks first. Their test files do not count. **A title starting
-`BREAKING:`** makes the bot hold every pin move, label or not.
+**Marking a change `additive`.** Add the label `additive` to the kit pull request before it merges,
+when an existing function called with the same arguments behaves as before, and name the default
+that keeps the old behaviour under item 3. The label only matters for `kit/screens.ts` and
+`kit/page.ts` (not their test files), whose behaviour shows only in a real browser. A `BREAKING:`
+title holds every pin move, label or not.
 
 ### (a) A kit change one game needs
 
