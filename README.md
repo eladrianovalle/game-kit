@@ -130,12 +130,13 @@ token. It clones this repo's `main`, runs `tools/kit-bump.mjs` from that clone, 
 2. moves the pin on a branch `kit/<short hash>` and copies the files with the game's own sync tool;
 3. runs the game's own `npm run check` (in that run: a pull request opened with a repo's own token
    does not start its other workflows);
-4. opens a pull request titled "Move the kit pin to game-kit <short hash>", and closes the game's
-   older `kit/*` pin moves as replaced, unless one holds someone's edits, which it comments on;
+4. pushes the branch, replacing one it left earlier with no open pull request, opens a pull request
+   titled "Move the kit pin to game-kit <short hash>", and closes the game's older pin moves (branches
+   `kit/<short hash>`) as replaced, unless one holds someone's edits, which it comments on;
 5. merges it, or leaves it open with a comment, as below.
 
 - **Hold for the owner** if any kit change since the pin reached `main` without a pull request, has a
-  title starting `BREAKING:`, or changes `kit/screens.ts` or `kit/page.ts` without the label
+  title starting `BREAKING:`, or changes or renames `kit/screens.ts` or `kit/page.ts` without the label
   `additive`.
 - **Leave it open** if the check failed, with the end of its output in a comment. The run shows red.
 - **Merge** otherwise, with that game's merge method.
@@ -160,7 +161,8 @@ title holds every pin move, label or not.
    there, and plays it if the change can be seen or felt. That is item 4.
 3. The owner merges the kit pull request with a merge commit.
 4. Within the hour, each game's `kit-bump` workflow moves its pin and merges the move once that game's
-   own check passes. Every game is now on the change.
+   own check passes. Every game's repo is now on the change. The bot's merge starts no workflow, so
+   nothing deploys it until the game's workflows next run.
 5. The asking game uses the new code in an ordinary pull request of its own. Its pin has already
    moved.
 

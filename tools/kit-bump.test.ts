@@ -106,11 +106,15 @@ interface Pull {
   title: string;
   labels?: string[];
   files: string[];
+  /** A renamed file's old name, by its new one: what GitHub reports as `previous_filename`. */
+  renamed?: Record<string, string>;
 }
 
 interface Scenario {
   pulls?: Record<string, Pull>;
   open?: { number: number; url: string; headRefName: string; commits?: unknown[] }[];
+  /** `gh pr create` fails, as it does when the repo does not let workflows open pull requests. */
+  createFails?: boolean;
 }
 
 /** A fake `gh` on the PATH: answers from the scenario, logs every call. */
@@ -135,10 +139,16 @@ if (args[0] === 'api') {
     process.stdout.write(JSON.stringify(pull ? [{ number: pull.number, title: pull.title, labels: (pull.labels || []).map((name) => ({ name })), merge_commit_sha: commit[1], merged_at: '2026-10-14T00:00:00Z' }] : []));
   } else if (files) {
     const pull = Object.values(pulls).find((candidate) => String(candidate.number) === files[1]);
-    process.stdout.write((pull ? pull.files : []).join('\\n') + '\\n');
+    const jq = args[args.indexOf('--jq') + 1] || '';
+    const renamed = (pull && pull.renamed) || {};
+    const names = (pull ? pull.files : []).flatMap((file) => (jq.includes('previous_filename') && renamed[file] ? [file, renamed[file]] : [file]));
+    process.stdout.write(names.join('\\n') + '\\n');
   }
 } else if (args[0] === 'pr' && args[1] === 'list') {
   process.stdout.write(JSON.stringify(scenario.open || []));
+} else if (args[0] === 'pr' && args[1] === 'create' && scenario.createFails) {
+  process.stderr.write('pull request create failed: GitHub Actions is not permitted to create or approve pull requests\\n');
+  process.exit(1);
 } else if (args[0] === 'pr' && args[1] === 'create') {
   process.stderr.write('Creating pull request\\n');
   process.stdout.write(${JSON.stringify(NEW_PULL)} + '\\n');
@@ -155,7 +165,7 @@ if (args[0] === 'api') {
   };
 }
 
-/** Runs the bot as the workflow does. Holds that nothing looks like a stack trace, and that its own exit 2 prints one line. */
+/** Runs the bot as the workflow does. Holds that nothing looks like a stack trace, and that its own exit 2 prints one line on stderr. */
 function runBot(env: Record<string, string>, ...commandLine: string[]): { status: number | null; output: string } {
   const gitIdentity = {
     GIT_AUTHOR_NAME: 'Kit Bump Test',
@@ -168,7 +178,7 @@ function runBot(env: Record<string, string>, ...commandLine: string[]): { status
   expect(output).not.toMatch(/^\s+at .+:\d+/m);
   expect(output).not.toMatch(/node:internal|file:\/\//);
   if (result.status === 2) {
-    expect(output.trimEnd().split('\n')).toHaveLength(1);
+    expect(result.stderr.trimEnd().split('\n')).toHaveLength(1);
   }
   return { status: result.status, output };
 }
@@ -266,6 +276,15 @@ describe('kit-bump run: one run in a game', () => {
     expect(bodyOf(named(calls, 'pr', 'comment')[0])).toContain('Held for the owner');
   });
 
+  it('holds a pull request that renames kit/screens.ts, which GitHub reports under its new name', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    const gh = fakeGh({ pulls: { [kit.head]: { number: 14, title: 'Screens: a new name', files: ['kit/navigation.ts'], renamed: { 'kit/navigation.ts': 'kit/screens.ts' } } } });
+    expect(runIn(game, kit, gh.env).status).toBe(0);
+    expect(named(gh.calls(), 'pr', 'merge')).toHaveLength(0);
+    expect(bodyOf(named(gh.calls(), 'pr', 'comment')[0])).toContain('kit/screens.ts');
+  });
+
   it('holds a change that reached main without a pull request', () => {
     const kit = buildKit();
     const game = buildGame(kit);
@@ -273,6 +292,16 @@ describe('kit-bump run: one run in a game', () => {
     expect(runIn(game, kit, gh.env).status).toBe(0);
     expect(named(gh.calls(), 'pr', 'merge')).toHaveLength(0);
     expect(bodyOf(named(gh.calls(), 'pr', 'create')[0])).toContain('pushed to main without a pull request');
+  });
+
+  it('runs the check without GH_TOKEN or GITHUB_TOKEN', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    const gh = fakeGh({ pulls: { [kit.head]: { number: 12, title: 'Clock: a pause', files: ['kit/clock.ts'] } } });
+    const env = { ...gh.env, GH_TOKEN: 'a-token', GITHUB_TOKEN: 'a-token' };
+    const result = runIn(game, kit, env, ['--check', 'test -z "$GH_TOKEN" && test -z "$GITHUB_TOKEN"']);
+    expect(result.status, result.output).toBe(0);
+    expect(named(gh.calls(), 'pr', 'merge')).toHaveLength(1);
   });
 
   it('does not merge when the check fails: comments the output and exits 1', () => {
@@ -289,7 +318,7 @@ describe('kit-bump run: one run in a game', () => {
     expect(bodyOf(named(calls, 'pr', 'comment')[0])).toContain('the clock test failed');
   });
 
-  it('closes an older kit/* pull request holding only the bot\'s commit, and comments on one holding more', () => {
+  it('closes an older pin move holding only the bot\'s commit, comments on one holding more, and leaves a person\'s kit/ branch alone', () => {
     const kit = buildKit();
     const game = buildGame(kit);
     const gh = fakeGh({
@@ -298,6 +327,7 @@ describe('kit-bump run: one run in a game', () => {
         { number: 30, url: 'https://github.com/owner/game/pull/30', headRefName: 'kit/aaaaaaaaaaaa', commits: [{}] },
         { number: 31, url: 'https://github.com/owner/game/pull/31', headRefName: 'kit/bbbbbbbbbbbb', commits: [{}, {}] },
         { number: 32, url: 'https://github.com/owner/game/pull/32', headRefName: 'feature/menu', commits: [{}] },
+        { number: 33, url: 'https://github.com/owner/game/pull/33', headRefName: 'kit/fix-input', commits: [{}] },
       ],
     });
 
@@ -327,6 +357,32 @@ describe('kit-bump run: one run in a game', () => {
     expect(result).toEqual({ status: 0, output: expect.stringContaining(NEW_PULL) });
     expect(gh.calls().map((call) => call.slice(0, 2).join(' '))).toEqual(['pr list']);
     expect(git(game, 'ls-remote', '--heads', 'origin', 'kit/*')).toBe('');
+  });
+
+  it('replaces its own kit/<short> branch left on origin with no open pull request, once the repo lets workflows open them', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    const branch = `kit/${kit.head.slice(0, 12)}`;
+    const pulls = { [kit.head]: { number: 12, title: 'Clock: a pause', files: ['kit/clock.ts'] } };
+
+    // The setting is off: the branch is pushed, opening the pull request fails.
+    expect(runIn(game, kit, fakeGh({ pulls, createFails: true }).env).status).toBe(2);
+    const leftover = git(game, 'ls-remote', '--heads', 'origin', branch).split('\t')[0];
+    expect(leftover).toMatch(/^[0-9a-f]{40}$/);
+
+    // The setting is on. The next run starts from a fresh checkout, as the workflow does, and commits
+    // the pin move afresh, so its commit differs from the leftover one.
+    const fresh = temporaryFolder();
+    execFileSync('git', ['clone', '-q', '--branch', 'main', git(game, 'remote', 'get-url', 'origin'), fresh]);
+    const gh = fakeGh({ pulls });
+    const result = runIn(fresh, kit, { ...gh.env, GIT_COMMITTER_DATE: '2026-10-14T12:00:00Z' });
+
+    expect(result.status, result.output).toBe(0);
+    const pushed = git(fresh, 'ls-remote', '--heads', 'origin', branch).split('\t')[0];
+    expect(pushed).toBe(git(fresh, 'rev-parse', branch));
+    expect(pushed).not.toBe(leftover);
+    expect(named(gh.calls(), 'pr', 'create')).toHaveLength(1);
+    expect(named(gh.calls(), 'pr', 'merge')).toHaveLength(1);
   });
 
   it('does nothing for a game with no pin yet, with a line on the summary', () => {

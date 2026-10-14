@@ -260,7 +260,7 @@ The corrections are text only. `kit/host.ts` is types and names no style and no 
 1. The game's agent branches `game-kit` from `origin/main` in its own clone, makes the change with tests, gets `npm run check` green, and opens the kit pull request with the seven items. The change is additive: an existing function called with the same arguments behaves as before.
 2. The asking game's agent pins the kit branch in a draft game pull request, runs `npm run check` there, and plays it if the change can be seen or felt. That is item 4.
 3. The owner merges the kit pull request with a merge commit.
-4. Within the hour, each game's `kit-bump` workflow moves its pin and merges the move once that game's own check passes. Every game is now on the change.
+4. Within the hour, each game's `kit-bump` workflow moves its pin and merges the move once that game's own check passes. Every game's repo is now on the change; the bot's merge starts no workflow, so nothing deploys it until the game's workflows next run.
 5. The asking game uses the new code in an ordinary pull request of its own. Its pin has already moved.
 
 **(b) A change that is not additive.** Its title starts `BREAKING:`, and item 5 names the edits each game needs. On merge each game's `kit-bump` workflow still opens its pin move, but merges none of them: each waits for the owner. The edits each game needs are pushed to that game's pin-move pull request, so the pin and the code move together, and the owner merges it once its checks pass. Prefer an additive change with a default that keeps the old behaviour: it costs one pull request instead of one per game.
@@ -280,10 +280,10 @@ The amendment of 2026-10-14. Units 4 to 6 build it.
 **The bot runs in each game.** `game-kit` is public, so a game can read it with no token of its own. Each game copies `templates/kit-bump.yml` once to `.github/workflows/kit-bump.yml` and sets three values: `KIT_ROOT` (the folder holding its `tools/` and `kit/`), `KIT_BRANCH` (where its work lands) and `KIT_MERGE` (how it merges pull requests). The workflow runs every hour and on demand, one run at a time, with the game's own token. It clones `game-kit`'s `main` and runs `tools/kit-bump.mjs` from that clone, so a fix to the bot reaches every game without an edit in any of them. One run:
 
 1. Stop if the game has no pin, if the pin already names `main`, or if a pin move to `main` is already open.
-2. Decide from every commit on `main`'s first-parent line since the pin, each looked up as the pull request that merged it. **Hold** if any came without a pull request, has a title starting `BREAKING:`, or changes `kit/screens.ts` or `kit/page.ts` without the label `additive`. Otherwise merge when green.
+2. Decide from every commit on `main`'s first-parent line since the pin, each looked up as the pull request that merged it. **Hold** if any came without a pull request, has a title starting `BREAKING:`, or changes `kit/screens.ts` or `kit/page.ts` (renaming either counts) without the label `additive`. Otherwise merge when green.
 3. On a branch `kit/<short hash>`: move the pin, run the game's own sync tool, commit only the pin and the files it wrote.
-4. Run the game's check (`npm ci && npm run check` in `KIT_ROOT`) in that same run. A pull request opened with a repo's own token does not start that repo's other workflows, so the bot cannot wait for them.
-5. Push the branch and open "Move the kit pin to game-kit <short hash>", naming each kit change, the check's result and the decision. Close older open `kit/*` pin moves as replaced; one that holds someone's edits is left open with a comment.
+4. Run the game's check (`npm ci && npm run check` in `KIT_ROOT`) in that same run, with no token in its environment. A pull request opened with a repo's own token does not start that repo's other workflows, so the bot cannot wait for them.
+5. Push the branch and open "Move the kit pin to game-kit <short hash>", naming each kit change, the check's result and the decision. A `kit/<short hash>` branch already on the game's origin with no open pull request is the bot's own leftover, from a run that failed to open its pull request or a pin move closed unmerged, and the push replaces it. Close older open pin moves (branches `kit/<short hash>`) as replaced; one that holds someone's edits is left open with a comment.
 6. Merge it with `KIT_MERGE` if the check passed and nothing is held. Otherwise comment why and leave it open. A failed sync or check exits 1, so the run shows red.
 
 The game's repo must allow workflows to open pull requests (Settings, Actions, General). No secret is used anywhere.
@@ -304,7 +304,9 @@ The game's repo must allow workflows to open pull requests (Settings, Actions, G
 | A change the games' tests cannot see (scrolling, focus, sizing) | Not caught by any check. The bot holds every pin move for a kit change that touches `kit/screens.ts` or `kit/page.ts` without the `additive` label, so a person looks first. The reviewer asks of every kit pull request: with the same arguments, does any existing function behave differently? |
 | A game has no pin file yet, or its sync fails | No pin: the run does nothing and says so in its summary. A failed sync: nothing is pushed, and the run shows red. |
 | A game's pin move is still open when the next kit change merges | The newer pin move replaces it: the bot closes the older one, because a pin holds every change before it. An older one that holds someone's edits (flow (b)) is not closed; the bot comments on it to carry them onto the newer one. |
-| A game's repo does not let workflows open pull requests | The run pushes the branch, then fails at opening the pull request and shows red. The setting is named in the template. |
+| A game's repo does not let workflows open pull requests | The run pushes the branch, then fails at opening the pull request and shows red. The setting is named in the template. Once it is on, the next run replaces the branch it left and opens the pull request. |
+| A game deploys or runs CI on a push to its base branch | The bot's merge, made with the repo's own token, starts no workflow there: the repo is on the new kit, its deployed build is not until the game's workflows next run. Not automated. |
+| A game's base branch requires status checks | They never run on the bot's pull request, which the repo's own token opened, so `gh pr merge` fails and the run shows red. The next run finds the pin move open and stops quietly; it waits for a person to merge it. |
 | A change to the bot breaks it | Every game runs the new bot on its next run, from `main`. Its test runs here first, in `npm run check`; a broken run shows red in every game, and fixing `main` fixes every game. |
 | The two games need incompatible behaviour | First an option whose default keeps the old behaviour. If that cannot be done, the owner decides. A game leaving the kit is his call, never an agent's. |
 | A kit file is renamed or removed | The old copy lingers in each game. The kit pull request says so under item 5 and each game deletes it on adopting. Not automated. |
@@ -355,7 +357,7 @@ Decided for the amendment, with what was rejected:
 
 - A package, registry, submodule or subtree; tags, versions, a changelog.
 - Shared build tooling: `check-dist`, the Pixi build tweak, `extract-constants`, Cemetery Security's literals lint.
-- A game's CI reaching `game-kit`.
+- A game's `npm run check` reaching `game-kit`: its hash check reads only the game's own files. Only the game's `kit-bump` workflow reads `game-kit`.
 - Each game's own font, colour and cross-origin work. That is the site spec's, in the game repos.
 - Tidying the imported files, such as the two test names that still say `web/kit` and `web/game` (in `kit/host.test.ts` and `kit/boundaries.test.ts`), the only game-specific names in kit files. Changing them at import would break byte identity; the first kit pull request that edits either file for another reason renames them.
 - A pull request template, a guard against overwriting a hand edit, automatic deletion of removed files, a check of `repository`.
@@ -449,7 +451,7 @@ What gets built: `tools/kit-bump.mjs` and its test, `templates/kit-bump.yml`, th
 
 ### 5. `gk_games_run_bump` — each game runs the bot
 
-What gets built: in `cemetery-security` and in `into-the-dark-web`, one pull request each, adding `.github/workflows/kit-bump.yml` from the template with that game's three values (`web`, `dev`, `squash` and `.`, `main`, `merge`), and turning on "Allow GitHub Actions to create and approve pull requests". Each waits on that game having a pin from `game-kit` (`gk_cs_adopts`, `gk_itd_switches_source`).
+What gets built: in `cemetery-security` and in `into-the-dark-web`, one pull request each, adding `.github/workflows/kit-bump.yml` from the template with that game's three values (`web`, `dev`, `squash` and `.`, `main`, `merge`), and turning on "Allow GitHub Actions to create and approve pull requests". Each pull request names what the repo's own token cannot do in that game: the bot's merge starts no workflow on the base branch, so no deploy and no CI follow it, and a base branch that requires status checks makes the bot's merge fail, because no check runs on its pull request. Each waits on that game having a pin from `game-kit` (`gk_cs_adopts`, `gk_itd_switches_source`).
 
 **Acceptance criteria:**
 - [ ] The workflow file is the template with only the three values changed.

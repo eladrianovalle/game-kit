@@ -16,11 +16,14 @@
 //      kit/screens.ts or kit/page.ts without the `additive` label.
 //   3. On a branch kit/<12-character short hash>: move the pin, run the game's own
 //      sync tool, commit only the pin and the files the sync wrote.
-//   4. Run the game's check (`npm ci && npm run check` in <root> unless --check).
-//      It runs here because a pull request opened with the repo's own token does not
-//      start the repo's other workflows.
-//   5. Push the branch and open the pull request. Close older open kit/* pull
-//      requests that hold only the bot's commit; comment on any that hold more.
+//   4. Run the game's check (`npm ci && npm run check` in <root> unless --check),
+//      without GH_TOKEN or GITHUB_TOKEN in its environment. It runs here because a
+//      pull request opened with the repo's own token does not start the repo's other
+//      workflows.
+//   5. Push the branch, replacing a leftover kit/<short hash> branch that no open
+//      pull request holds, and open the pull request. Close older open
+//      kit/<short hash> pull requests that hold only the bot's commit; comment on
+//      any that hold more.
 //   6. Merge it with the game's method if the check passed and nothing is held.
 //      Otherwise comment why and leave it open. A failed check or sync exits 1, so
 //      the run shows red.
@@ -43,6 +46,8 @@ export const ADDITIVE_LABEL = 'additive';
 export const BREAKING_PREFIX = 'BREAKING:';
 const MERGE_METHODS = ['merge', 'squash', 'rebase'];
 const DEFAULT_CHECK = 'npm ci && npm run check';
+/** A branch this bot names: kit/ and a 12-character short hash. A person's kit/fix-input is not one. */
+const PIN_MOVE_BRANCH = /^kit\/[0-9a-f]{12}$/;
 
 // ---------------------------------------------------------------------------
 // The decision.
@@ -120,7 +125,8 @@ export function changesSince({ kit, kitRepo, pinned, head }) {
     if (pull === undefined) {
       return { sha, pullRequest: null, decision: decide({ pr: null }) };
     }
-    const files = runGh('api', '--paginate', `repos/${kitRepo}/pulls/${pull.number}/files`, '--jq', '.[].filename').split('\n').filter(Boolean);
+    // A renamed file counts under its old name too, so moving kit/screens.ts away still holds.
+    const files = runGh('api', '--paginate', `repos/${kitRepo}/pulls/${pull.number}/files`, '--jq', '.[] | .filename, .previous_filename // empty').split('\n').filter(Boolean);
     const pr = { title: String(pull.title ?? ''), labels: (pull.labels ?? []).map((label) => label.name), files };
     return { sha, pullRequest: { number: pull.number, title: pr.title }, decision: decide({ pr }) };
   });
@@ -224,7 +230,7 @@ export function pinMovePullRequest({ head, kitRepo, changes, decision, check }) 
   };
 }
 
-/** Closes older open kit/* pull requests that hold only the bot's commit, and comments on any that hold more. */
+/** Closes older open pin moves that hold only the bot's commit, and comments on any that hold more. */
 function retireOlder({ repo, open, url }) {
   for (const older of open) {
     if ((older.commits?.length ?? 1) > 1) {
@@ -273,7 +279,7 @@ export function runOnce({ game, root, kit, kitRepo, repo, base, merge, check = D
   }
   const branch = `kit/${head.slice(0, 12)}`;
   const open = ghJson('pr', 'list', '--repo', repo, '--state', 'open', '--limit', '200', '--json', 'number,url,headRefName,commits').filter((pull) =>
-    pull.headRefName.startsWith('kit/'),
+    PIN_MOVE_BRANCH.test(pull.headRefName),
   );
   const already = open.find((pull) => pull.headRefName === branch);
   if (already !== undefined) {
@@ -287,12 +293,18 @@ export function runOnce({ game, root, kit, kitRepo, repo, base, merge, check = D
     report(summary, `the game's sync tool failed for game-kit ${head}; nothing was committed or pushed`);
     return 1;
   }
-  const result = spawnSync('bash', ['-c', check], { cwd: gameRoot, encoding: 'utf8' });
+  // The check runs the game's tests and every dependency's install script: it gets no token that can push.
+  const { GH_TOKEN: _ghToken, GITHUB_TOKEN: _githubToken, ...checkEnv } = process.env;
+  const result = spawnSync('bash', ['-c', check], { cwd: gameRoot, encoding: 'utf8', env: checkEnv });
   process.stdout.write(result.stdout ?? '');
   process.stderr.write(result.stderr ?? '');
   const checked = { command: check, passed: result.status === 0, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
 
-  runGit(game, 'push', '-q', 'origin', branch);
+  // A kit/<short> branch already on origin that no open pull request holds is this bot's own leftover:
+  // a run that pushed and then failed to open its pull request, or a pin move closed unmerged. This
+  // run's commit is new, so replace the branch, but only if it still holds the commit seen here.
+  const leftover = runGit(game, 'ls-remote', '--heads', 'origin', `refs/heads/${branch}`).split('\t')[0].trim();
+  runGit(game, 'push', '-q', ...(leftover ? [`--force-with-lease=refs/heads/${branch}:${leftover}`] : []), 'origin', branch);
   const { title, body } = pinMovePullRequest({ head, kitRepo, changes, decision, check: checked });
   const url = runGh('pr', 'create', '--repo', repo, '--base', base, '--head', branch, '--title', title, '--body', body).trim().split('\n').pop();
   retireOlder({ repo, open, url });

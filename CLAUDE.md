@@ -30,7 +30,8 @@ change flows and what a kit pull request must contain.
   and leave the commit a game tested on no branch.
 - Kit first, then game. A game's pin names only commits on `main` here. Each game's `kit-bump`
   workflow moves its pin after a kit change merges, and holds the move for the owner when the change
-  is `BREAKING:` or touches `kit/screens.ts` or `kit/page.ts` without the `additive` label.
+  reached `main` without a pull request, is `BREAKING:`, or touches `kit/screens.ts` or `kit/page.ts`
+  without the `additive` label.
 - Never force-push or rebase a kit branch a game may be pinned to. Answer review by adding commits;
   never reorder a branch.
 - Never force-push `main`.
