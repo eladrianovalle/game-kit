@@ -2,19 +2,6 @@ node_modules/
 dist/
 .DS_Store
 
-# Studio: the installed Python snapshot, run output and machine-local state are
-# not tracked. Its config (implementation_loop.toml, SETUP.json, roles) and the
-# specs under specs/ ARE tracked. A fresh clone reinstalls the snapshot with
-#   python3 <TheGameStudio>/studio/run_phase.py init --target .
-.studio/source/
-.studio/output/
-.studio/VERSION
-.studio/MANIFEST.json
-.studio/update-check.json
-.studio/usage.log
-.studio/clarity.json
-.studio/knowledge/
-
-# Claude Code: per-machine settings and worktrees. Slash commands and workflows are tracked.
-.claude/settings.local.json
-.claude/worktrees/
+# Studio and Claude Code: the agent tooling is installed per machine and not tracked here.
+.studio/
+.claude/

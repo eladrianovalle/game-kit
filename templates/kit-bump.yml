@@ -1,0 +1,71 @@
+# Keeps this game on the latest game kit. Every hour (or when run by hand) it
+# moves the kit pin to game-kit's main, runs this game's check, and merges the
+# move if the check passes and no kit change since the last pin is held for
+# the owner. Otherwise it leaves the pull request open and says why.
+#
+# The logic is game-kit's tools/kit-bump.mjs, read from game-kit's main on
+# every run, so this file rarely changes. game-kit is public, so the repo's own
+# token is all it needs. Copied from game-kit's templates/kit-bump.yml into
+# .github/workflows/kit-bump.yml: set the three values under `env`.
+#
+# The repo must let workflows open pull requests: Settings, Actions, General,
+# "Allow GitHub Actions to create and approve pull requests".
+name: kit-bump
+
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch: {}
+
+# One run at a time, never cancelling one in progress.
+concurrency:
+  group: kit-bump
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  # The folder that holds this game's tools/ and kit/.
+  KIT_ROOT: .
+  # The branch this game's work lands on.
+  KIT_BRANCH: main
+  # How this repo merges pull requests: merge, squash or rebase.
+  KIT_MERGE: merge
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.KIT_BRANCH }}
+
+      - name: Read game-kit's main
+        run: git clone --quiet https://github.com/eladrianovalle/game-kit.git "$RUNNER_TEMP/game-kit"
+
+      - id: node
+        name: Choose the game's Node version
+        run: |
+          if [ -f "$KIT_ROOT/.nvmrc" ]; then
+            echo "version=$(cat "$KIT_ROOT/.nvmrc")" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=22" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+
+      - name: Move the kit pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          node "$RUNNER_TEMP/game-kit/tools/kit-bump.mjs" run \
+            --game . --root "$KIT_ROOT" \
+            --kit "$RUNNER_TEMP/game-kit" --kit-repo eladrianovalle/game-kit \
+            --repo "$GITHUB_REPOSITORY" --base "$KIT_BRANCH" --merge "$KIT_MERGE" \
+            --summary "$GITHUB_STEP_SUMMARY"
