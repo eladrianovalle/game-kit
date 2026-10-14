@@ -1,8 +1,7 @@
 // Shows one of a game's declared screens at a time, keeps the URL fragment and
 // the browser's history in step with it, and moves focus to it. A screen change
-// is an instant swap, as a page load is. It scrolls the page only when the
-// visitor could not otherwise see the change: when none of the game is on
-// screen, or when the place focus lands is above the window.
+// is an instant swap, as a page load is. It scrolls the page only when none of
+// the game is on screen to see the change.
 //
 // Each screen has an address, the part of the URL after `#`. Going to a screen
 // adds a history entry (or replaces the current one, for a screen that says
@@ -51,10 +50,21 @@ export function createScreens(config: {
   root: HTMLElement;
   /**
    * What is brought on screen when a screen arrives and none of it can be
-   * seen, or the place focus lands is above the window. Default: the root. A game whose screens are layers over one picture
+   * seen. Default: the root. A game whose screens are layers over one picture
    * names the box that holds the picture.
    */
   scrollTarget?: HTMLElement;
+  /**
+   * Also bring the scroll target to the top when a screen arrives with the
+   * target's top above the window, or under a host's sticky bar, though some
+   * of it can be seen. For a game whose screens differ in height: after a
+   * tall screen read from its bottom, a short one would otherwise arrive with
+   * its heading out of sight. The bar's height is the target's
+   * `scroll-margin-top`, which the host contract asks the host to set.
+   * Default: false, so a game whose screens share one stage is never scrolled
+   * while any of it is in view.
+   */
+  scrollWhenTopHidden?: boolean;
   screens: readonly ScreenDef[];
   /** Where a bad or unlinkable address lands. */
   fallback: string;
@@ -92,19 +102,12 @@ export function createScreens(config: {
     return box.bottom > 0 && box.top < environment.innerHeight;
   };
 
-  /**
-   * Is the top of `element` hidden above the window, or under a host's sticky
-   * bar? The bar's height is the scroll target's `scroll-margin-top`, which
-   * the host contract asks the host to set on the game's element.
-   */
-  const isAboveTheWindow = (element: HTMLElement | null): boolean => {
-    if (!element) {
-      return false;
-    }
+  /** Is the scroll target's top above the window, or under the host's sticky bar? */
+  const isTopHidden = (): boolean => {
     const view = scrollTarget.ownerDocument.defaultView;
     const bar = view ? Number.parseFloat(view.getComputedStyle(scrollTarget).scrollMarginTop) || 0 : 0;
     // One pixel of slack, so a target that sits exactly under the bar counts as seen.
-    return element.getBoundingClientRect().top < bar - 1;
+    return scrollTarget.getBoundingClientRect().top < bar - 1;
   };
 
   const show = (definition: ScreenDef, params: unknown, moveFocus: boolean): void => {
@@ -123,15 +126,12 @@ export function createScreens(config: {
     if (moveFocus) {
       // A visitor who can already see the game must not have the page moved
       // under them, by the scroll or by the focus. One who has scrolled away
-      // from all of it is brought back to it, and so is one whose new screen
-      // starts above the window: a short screen after a tall one, read from
-      // the bottom, would otherwise arrive with its heading out of sight.
-      const target = view.focusTarget ?? section.querySelector<HTMLElement>(HEADING_SELECTOR);
-      const seen = isInView() && !isAboveTheWindow(target);
+      // from all of it is brought back to it.
+      const seen = isInView() && !(config.scrollWhenTopHidden === true && isTopHidden());
       if (!seen) {
         scrollTarget.scrollIntoView({ block: 'start' });
       }
-      focusOn(target, seen);
+      focusOn(view.focusTarget ?? section.querySelector<HTMLElement>(HEADING_SELECTOR), seen);
     }
     onChange(definition.id, previousId);
   };

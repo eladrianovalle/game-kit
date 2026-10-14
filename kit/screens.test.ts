@@ -153,9 +153,9 @@ describe('screens and the page\'s scroll', () => {
     return { scrolls, focuses };
   }
 
-  it('a screen arriving while any of the root is on screen, its heading in sight, scrolls nothing, and moves focus without scrolling', () => {
+  it('a screen arriving while any of the root is on screen scrolls nothing, and moves focus without scrolling', () => {
     const { document, root, screens, history } = setUp();
-    // The root's top is above the window and its bottom is in it. The headings are unplaced, at the window's top.
+    // The root's top is above the window and its bottom is in it.
     placeElement(root, { left: 0, top: -300, width: 800, height: 600 });
     const { scrolls, focuses } = watchThePage(document, { root });
     screens.go('list');
@@ -180,8 +180,8 @@ describe('screens and the page\'s scroll', () => {
     }
   });
 
-  /** A menu and a short screen whose heading is placed at `headingTop` as it is built, over a root placed at `rootTop`. */
-  function shortScreenAfterTallOne(rootTop: number, headingTop: number, scrollMarginTop = '') {
+  /** Two screens over a root placed at `rootTop`, with the host's sticky bar given as the root's scroll-margin-top. */
+  function screensWithTopHidden(rootTop: number, scrollWhenTopHidden: boolean | undefined, scrollMarginTop = '') {
     const { document, hostElement: root } = createFakePage();
     root.style.scrollMarginTop = scrollMarginTop;
     const screen = (id: string, address: string): ScreenDef => ({
@@ -191,14 +191,13 @@ describe('screens and the page\'s scroll', () => {
       replacesPrevious: false,
       enter() {
         const element = document.createElement('div');
-        const heading = document.createElement('h1');
-        placeElement(heading, { left: 0, top: headingTop, width: 800, height: 40 });
-        element.append(heading);
+        element.append(document.createElement('h1'));
         return { element };
       },
     });
     const screens = createScreens({
       root,
+      scrollWhenTopHidden,
       screens: [screen('menu', '/'), screen('short', '/short')],
       fallback: 'menu',
       onChange: () => {},
@@ -208,23 +207,30 @@ describe('screens and the page\'s scroll', () => {
     return { ...watchThePage(document, { root }), screens };
   }
 
-  it('a screen whose heading arrives above the window brings the root to the top, though some of the root is on screen', () => {
-    // A tall screen read from its bottom: the root's top is above the window, its bottom in it.
-    const { scrolls, focuses, screens } = shortScreenAfterTallOne(-300, -280);
+  it('with scrollWhenTopHidden, a screen arriving while the root\'s top is above the window brings the root to the top', () => {
+    const { scrolls, focuses, screens } = screensWithTopHidden(-300, true);
     screens.go('short');
     expect(scrolls).toEqual([['root', { block: 'start' }]]);
     expect(focuses).toEqual([{ preventScroll: false }]);
   });
 
-  it('a heading under the host\'s sticky bar counts as above the window; one at or below the bar does not', () => {
-    for (const [headingTop, scrolled] of [
+  it('with scrollWhenTopHidden, a top under the host\'s sticky bar counts as hidden; one at or below the bar does not', () => {
+    for (const [top, scrolled] of [
       [40, true],
       [56, false],
       [120, false],
     ] as const) {
-      const { scrolls, screens } = shortScreenAfterTallOne(-300, headingTop, '56px');
+      const { scrolls, screens } = screensWithTopHidden(top, true, '56px');
       screens.go('short');
-      expect(scrolls.length > 0, `heading at ${headingTop}`).toBe(scrolled);
+      expect(scrolls.length > 0, `root at ${top}`).toBe(scrolled);
+    }
+  });
+
+  it('without scrollWhenTopHidden, a root whose top is above the window but which is partly in view is not scrolled', () => {
+    for (const option of [undefined, false]) {
+      const { scrolls, screens } = screensWithTopHidden(-300, option);
+      screens.go('short');
+      expect(scrolls).toEqual([]);
     }
   });
 
