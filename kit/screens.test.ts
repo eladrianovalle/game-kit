@@ -207,11 +207,12 @@ describe('screens and the page\'s scroll', () => {
     return { ...watchThePage(document, { root }), screens };
   }
 
-  it('with scrollWhenTopHidden, a screen arriving while the root\'s top is above the window brings the root to the top', () => {
+  it('with scrollWhenTopHidden, a screen arriving while the root\'s top is above the window brings the root to the top, and holds focus from scrolling', () => {
     const { scrolls, focuses, screens } = screensWithTopHidden(-300, true);
     screens.go('short');
     expect(scrolls).toEqual([['root', { block: 'start' }]]);
-    expect(focuses).toEqual([{ preventScroll: false }]);
+    // The page is where it should be; focus scrolling too could undo it.
+    expect(focuses).toEqual([{ preventScroll: true }]);
   });
 
   it('with scrollWhenTopHidden, a top under the host\'s sticky bar counts as hidden; one at or below the bar does not', () => {

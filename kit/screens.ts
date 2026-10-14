@@ -127,11 +127,15 @@ export function createScreens(config: {
       // A visitor who can already see the game must not have the page moved
       // under them, by the scroll or by the focus. One who has scrolled away
       // from all of it is brought back to it.
-      const seen = isInView() && !(config.scrollWhenTopHidden === true && isTopHidden());
-      if (!seen) {
+      const inView = isInView();
+      if (!inView || (config.scrollWhenTopHidden === true && isTopHidden())) {
         scrollTarget.scrollIntoView({ block: 'start' });
       }
-      focusOn(view.focusTarget ?? section.querySelector<HTMLElement>(HEADING_SELECTOR), seen);
+      // Focus may scroll the page only when none of the game was in view. When
+      // the game's top was brought back, the page is where it should be, and a
+      // game that keeps the old screen on the page for a moment would have
+      // focus scroll down to a heading the old screen still pushes out of sight.
+      focusOn(view.focusTarget ?? section.querySelector<HTMLElement>(HEADING_SELECTOR), inView);
     }
     onChange(definition.id, previousId);
   };
