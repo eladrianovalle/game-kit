@@ -26,8 +26,8 @@ Everything under `kit/` and `testing/` is copied into every game byte for byte, 
 lives in those two folders. That is why this repo has no `kit/KIT_SOURCE.json`: a game's pin sits at
 that path.
 
-`npm run check` is this repo's one check: type check, lint with zero warnings, and the tests. Node 22
-or newer.
+`npm run check` is this repo's one check: type check, lint with zero warnings, and the tests. Node
+22.12 or newer.
 
 ## How a game adopts the kit
 
@@ -80,7 +80,7 @@ uncommitted work do not matter. It reads the clone as last fetched, so fetch fir
 | Exit code | Meaning |
 |---|---|
 | 0 | All is as it should be. |
-| 1 | A file differs, or the pin is not on `main`. |
+| 1 | A file differs, or, for `--from --check` only, the pin is not on `main`. |
 | 2 | The tool cannot tell: a bad pin, a bad clone, a commit or path it cannot find. Nothing was written. |
 
 ## The merge rule

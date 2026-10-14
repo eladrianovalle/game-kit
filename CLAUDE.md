@@ -14,7 +14,10 @@ change flows and what a kit pull request must contain.
   that carries the seven items in the README. Do not reformat or lint-fix a kit file in passing: if
   lint or `tsc` complains about one and the behaviour is right, change the config.
 - **The kit knows no game.** Nothing under `kit/`, `testing/` or `tools/` imports from outside this
-  repo or names a game.
+  repo or names a game. Three imported files still carry Cemetery Security's paths, on purpose: the
+  test titles in `kit/host.test.ts` and `kit/boundaries.test.ts`, and the fixture paths in
+  `testing/imports.test.ts`. They change only when a kit pull request edits those files for another
+  reason; do not fix them in passing.
 - **`npm run check` must pass before any commit is offered for review**: type check, lint with zero
   warnings, tests. Dev dependencies only; `package.json` has no `dependencies` block.
 - **Do not edit the game repos or the site from here.** A change they need is handed to them as an
