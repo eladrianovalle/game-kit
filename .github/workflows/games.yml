@@ -1,0 +1,88 @@
+# The games check: every pull request to main runs every game's own check
+# against the kit as main will hold it once the pull request merges, before it
+# merges. One job per entry of games.json. Nothing is pushed to any game.
+# The steps live in tools/games.mjs; this file only calls it.
+name: games
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  games:
+    name: read games.json
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      games: ${{ steps.read.outputs.games }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - id: read
+        run: echo "games=$(node tools/games.mjs matrix)" >> "$GITHUB_OUTPUT"
+
+  check:
+    name: ${{ matrix.game.repo }}
+    needs: games
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      # One game's failure must not hide another's.
+      fail-fast: false
+      matrix:
+        game: ${{ fromJSON(needs.games.outputs.games) }}
+    env:
+      GAME_ROOT: game/${{ matrix.game.root }}
+    steps:
+      - name: Require the KIT_GAMES_TOKEN secret
+        env:
+          KIT_GAMES_TOKEN: ${{ secrets.KIT_GAMES_TOKEN }}
+        run: |
+          if [ -z "$KIT_GAMES_TOKEN" ]; then
+            echo "::error::The KIT_GAMES_TOKEN secret is empty or missing, so the games cannot be checked out: add it to game-kit's Actions secrets."
+            exit 1
+          fi
+
+      # Full history, so origin/main exists for the sync tool. github.sha is the pull request's merge commit.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.game.repo }}
+          ref: ${{ matrix.game.branch }}
+          token: ${{ secrets.KIT_GAMES_TOKEN }}
+          path: game
+          persist-credentials: false
+
+      - id: node
+        name: Choose the game's Node version
+        run: |
+          if [ -f "$GAME_ROOT/.nvmrc" ]; then
+            echo "version=$(cat "$GAME_ROOT/.nvmrc")" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=22" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+
+      - name: Pin the game to this commit and run its own sync tool
+        env:
+          GAME_ROOT_IN_CHECKOUT: ${{ matrix.game.root }}
+        run: node tools/games.mjs try --game game --root "$GAME_ROOT_IN_CHECKOUT" --commit "$GITHUB_SHA" --from .
+
+      - run: npm ci
+        working-directory: ${{ env.GAME_ROOT }}
+      - run: npm run check
+        working-directory: ${{ env.GAME_ROOT }}

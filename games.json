@@ -1,0 +1,4 @@
+[
+  { "repo": "eladrianovalle/cemetery-security", "branch": "dev",  "root": "web", "merge": "squash" },
+  { "repo": "eladrianovalle/into-the-dark-web", "branch": "main", "root": ".",   "merge": "merge" }
+]
