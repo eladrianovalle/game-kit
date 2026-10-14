@@ -180,6 +180,98 @@ describe('screens and the page\'s scroll', () => {
     }
   });
 
+  /** Two screens over a root placed at `rootTop`, with the host's sticky bar given as the root's scroll-margin-top. */
+  function screensWithTopHidden(rootTop: number, scrollWhenTopHidden: boolean | undefined, scrollMarginTop = '') {
+    const { document, hostElement: root } = createFakePage();
+    root.style.scrollMarginTop = scrollMarginTop;
+    const screen = (id: string, address: string): ScreenDef => ({
+      id,
+      address,
+      linkable: true,
+      replacesPrevious: false,
+      enter() {
+        const element = document.createElement('div');
+        element.append(document.createElement('h1'));
+        return { element };
+      },
+    });
+    const screens = createScreens({
+      root,
+      scrollWhenTopHidden,
+      screens: [screen('menu', '/'), screen('short', '/short')],
+      fallback: 'menu',
+      onChange: () => {},
+      environment: createFakeHistory().environment,
+    });
+    placeElement(root, { left: 0, top: rootTop, width: 800, height: 600 });
+    return { ...watchThePage(document, { root }), screens };
+  }
+
+  it('with scrollWhenTopHidden, a screen arriving while the root\'s top is above the window brings the root to the top, and holds focus from scrolling', () => {
+    const { scrolls, focuses, screens } = screensWithTopHidden(-300, true);
+    screens.go('short');
+    expect(scrolls).toEqual([['root', { block: 'start' }]]);
+    // The page is where it should be; focus scrolling too could undo it.
+    expect(focuses).toEqual([{ preventScroll: true }]);
+  });
+
+  it('with scrollWhenTopHidden, a top under the host\'s sticky bar counts as hidden; one at or below the bar does not', () => {
+    for (const [top, scrolled] of [
+      [40, true],
+      // The pixel of slack: just past it is hidden, just inside it is seen.
+      [54.5, true],
+      [55.5, false],
+      [56, false],
+      [120, false],
+    ] as const) {
+      const { scrolls, screens } = screensWithTopHidden(top, true, '56px');
+      screens.go('short');
+      expect(scrolls.length > 0, `root at ${top}`).toBe(scrolled);
+    }
+  });
+
+  it('without scrollWhenTopHidden, a root whose top is above the window but which is partly in view is not scrolled', () => {
+    for (const option of [undefined, false]) {
+      const { scrolls, screens } = screensWithTopHidden(-300, option);
+      screens.go('short');
+      expect(scrolls).toEqual([]);
+    }
+  });
+
+  it('with scrollWhenTopHidden, the bar is read from the scroll target: a root inside the host\'s element sees it only when the game names that element', () => {
+    for (const [namesHost, scrolled] of [
+      [false, false],
+      [true, true],
+    ] as const) {
+      const { document, hostElement } = createFakePage();
+      hostElement.style.scrollMarginTop = '56px';
+      const root = document.createElement('div');
+      hostElement.append(root);
+      const screen = (id: string, address: string): ScreenDef => ({
+        id,
+        address,
+        linkable: true,
+        replacesPrevious: false,
+        enter: () => ({ element: document.createElement('div') }),
+      });
+      const screens = createScreens({
+        root,
+        scrollTarget: namesHost ? hostElement : undefined,
+        scrollWhenTopHidden: true,
+        screens: [screen('menu', '/'), screen('short', '/short')],
+        fallback: 'menu',
+        onChange: () => {},
+        environment: createFakeHistory().environment,
+      });
+      // Both tops are under a 56 px bar. The margin is not inherited, so the root carries none.
+      placeElement(hostElement, { left: 0, top: 40, width: 800, height: 600 });
+      placeElement(root, { left: 0, top: 40, width: 800, height: 600 });
+      const { scrolls } = watchThePage(document, { root, host: hostElement });
+      screens.go('short');
+      expect(scrolls, `names the host's element: ${namesHost}`).toEqual(scrolled ? [['host', { block: 'start' }]] : []);
+    }
+  });
+
   it('judges by, and scrolls to, the scroll target when the game names one', () => {
     const { document, hostElement: stage } = createFakePage();
     const root = document.createElement('div');

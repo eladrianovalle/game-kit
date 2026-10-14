@@ -7,8 +7,9 @@ cleaning up when the player leaves.
 Games do not install the kit. Each game copies the kit's files into its own repo at one exact commit
 of this repo, commits them, and keeps a small file, the pin, that records that commit and a SHA-256
 hash of every copied file. The game's own `npm run check` recomputes the hashes and fails if a copied
-file was edited by hand. So the kit is changed in one place, here, and a game changes only when its
-own agent moves its pin.
+file was edited by hand. So the kit is changed in one place, here, and a game changes only through a
+pull request in its own repo. Every game runs the latest kit: each game's own `kit-bump` workflow
+moves its pin to this repo's `main` after a kit change merges.
 
 The full plan is `specs/game-kit.md`.
 
@@ -21,6 +22,8 @@ The full plan is `specs/game-kit.md`.
 | `tools/sync-kit.mjs` | Copies a pinned commit into a game and checks the copy. | Yes |
 | `tools/sync-kit.test.ts` | The tool's test. Runs here only. | No |
 | `CONTRACT.md` | What a host page and a game promise each other. | No, games and the site link to it |
+| `tools/kit-bump.mjs` | The bot that moves a game's pin, run by each game's workflow from a clone of `main`. Its test is beside it. | No |
+| `templates/kit-bump.yml` | The workflow a game copies once to run the bot. | Once, by hand |
 
 Everything under `kit/` and `testing/` is copied into every game byte for byte, and nothing else
 lives in those two folders. That is why this repo has no `kit/KIT_SOURCE.json`: a game's pin sits at
@@ -58,9 +61,10 @@ Cemetery Security). `<game-kit>` is the path to a fetched clone of this repo.
 4. Add `node tools/sync-kit.mjs --check` to the game's `npm run check`.
 5. Commit the copied files and the pin together.
 
-To move to a newer kit later: set `commit` to a newer commit on `main`, run step 3, run the game's
-`npm run check`, and play the game. If `tools/sync-kit.mjs` was among the copied files, run the
-command once more, so the new tool has done the copy.
+To move to a newer kit later, by hand (the bot does this for every game on every merge): set `commit`
+to a newer commit on `main`, run step 3, run the game's `npm run check`, and play the game. If
+`tools/sync-kit.mjs` was among the copied files, run the command once more, so the new tool has done
+the copy.
 
 A sync writes the files that exist at the pinned commit and deletes nothing. A file the kit has
 renamed or removed stays in the game until the game deletes it. A sync overwrites an uncommitted hand
@@ -96,8 +100,9 @@ uncommitted work do not matter. It reads the clone as last fetched, so fetch fir
 
 **The on-main check is evidence, not a gate.** `--from --check` says whether a game's pin is on
 `origin/main`, and its output is pasted into the game's pull request for the owner to read. Nothing
-enforces it: a game's CI cannot reach this repo, and the hash check in a game's CI knows nothing of
-`main`. The control is the order the owner merges in.
+enforces it: a game's `npm run check` never reads this repo, and its hash check knows nothing of
+`main`. A pin the `kit-bump` bot moves always names `main`'s head. For a pin moved by hand, the
+control is the order the owner merges in.
 
 ## What a kit pull request must contain
 
@@ -108,44 +113,72 @@ Write it for a reader who knows neither game.
 3. Breaking or not. Breaking means a game must edit its own code to adopt, or will behave differently
    without editing anything. If the change is additive, name the default that keeps the old behaviour
    (`scrollTarget` in `kit/screens.ts` is the model).
-4. Evidence from the game that asked: the kit branch commit it pinned and its `npm run check` result
-   there. If the change can be seen or felt, also what was watched in a real browser.
-5. The other game: where it uses what changed, by file and quoted call, and what it must do to adopt,
-   or "nothing" with the reason. A renamed or removed kit file is named here, because each game must
+4. Evidence: the kit branch commit a game pinned and its `npm run check` result there, for every game
+   the change touches. If the change can be seen or felt, also what was watched in a real browser, and
+   in which game.
+5. Every game: where it uses what changed, by file and quoted call, and what it must do to adopt, or
+   "nothing" with the reason. A renamed or removed kit file is named here, because each game must
    delete its old copy by hand.
 6. Whether `CONTRACT.md` changes. If it does, the site is a party; link the site issue.
 7. The kit tests added or changed, named by the behaviour they hold.
 
 ## Changing the kit
 
+Each game runs `templates/kit-bump.yml` as its own workflow, every hour and on demand, with its own
+token. It clones this repo's `main`, runs `tools/kit-bump.mjs` from that clone, and:
+
+1. does nothing if the pin already names `main`, or a pin move to it is already open;
+2. moves the pin on a branch `kit/<short hash>` and copies the files with the game's own sync tool;
+3. runs the game's own `npm run check` (in that run: a pull request opened with a repo's own token
+   does not start its other workflows);
+4. pushes the branch, replacing one it left earlier with no open pull request, opens a pull request
+   titled "Move the kit pin to game-kit <short hash>", and closes the game's older pin moves (branches
+   `kit/<short hash>`) as replaced, unless one holds someone's edits, which it comments on;
+5. merges it, or leaves it open with a comment, as below.
+
+- **Hold for the owner** if any kit change since the pin reached `main` without a pull request, has a
+  title starting `BREAKING:`, or changes or renames `kit/screens.ts` or `kit/page.ts` without the label
+  `additive`.
+- **Leave it open** if the check failed, with the end of its output in a comment. The run shows red.
+- **Merge** otherwise, with that game's merge method.
+
+To add a game: copy `templates/kit-bump.yml` to its `.github/workflows/kit-bump.yml`, set `KIT_ROOT`,
+`KIT_BRANCH` and `KIT_MERGE`, and turn on "Allow GitHub Actions to create and approve pull requests"
+in its Actions settings.
+
+**Marking a change `additive`.** Add the label `additive` to the kit pull request before it merges,
+when an existing function called with the same arguments behaves as before, and name the default
+that keeps the old behaviour under item 3. The label only matters for `kit/screens.ts` and
+`kit/page.ts` (not their test files), whose behaviour shows only in a real browser. A `BREAKING:`
+title holds every pin move, label or not.
+
 ### (a) A kit change one game needs
 
 1. The game's agent branches this repo from `origin/main` in its own clone, makes the change with
-   tests, gets `npm run check` green, and opens the kit pull request with the seven items above.
-2. In its game, on a branch: set `commit` in the pin to the kit branch head, run
-   `node tools/sync-kit.mjs --from <game-kit>` (the tool notes that the commit is not on main), run
-   `npm run check`, and play the game if the change can be seen. Open the game pull request as a
-   draft whose first line is "Waits on game-kit#N".
-3. If review adds commits to the kit pull request, the game re-pins to the new head and syncs again.
-4. The owner merges the kit pull request with a merge commit. The commit the game pinned is now on
-   `main`, so the game does not re-pin.
-5. The game's agent fetches this repo, runs `node tools/sync-kit.mjs --from <game-kit> --check`, and
-   on exit 0 pastes the output into the game pull request and marks it ready. The owner merges.
-6. The other game does nothing until it next wants a kit change. Then it moves its pin to a commit on
-   `main`, syncs, runs `npm run check` and plays.
+   tests, gets `npm run check` green, and opens the kit pull request with the seven items above. The
+   change is additive: an existing function called with the same arguments behaves as before.
+   If it touches `kit/screens.ts` or `kit/page.ts`, label the pull request `additive`.
+2. The asking game's agent pins the kit branch in a draft game pull request, runs `npm run check`
+   there, and plays it if the change can be seen or felt. That is item 4.
+3. The owner merges the kit pull request with a merge commit.
+4. Within the hour, each game's `kit-bump` workflow moves its pin and merges the move once that game's
+   own check passes. Every game's repo is now on the change. The bot's merge starts no workflow, so
+   nothing deploys it until the game's workflows next run.
+5. The asking game uses the new code in an ordinary pull request of its own. Its pin has already
+   moved.
 
-### (b) A change that breaks the other game
+### (b) A change that is not additive
 
-Prefer an additive change with a default that keeps the old behaviour. When that cannot be done:
+Prefer an additive change with a default that keeps the old behaviour: it costs one pull request
+instead of one per game. When that cannot be done:
 
 1. Follow (a), with the kit pull request's title starting `BREAKING:`.
-2. Under item 5, name the edits the other game will need.
-3. When the kit pull request merges, its author opens an issue in the other game's repo with the
-   commit, what changes and what to edit.
-4. The other game adapts in one pull request that moves its pin and edits its code together.
-
-The merge does not break the other game, because its pin has not moved. The cost comes later: it
-cannot take any newer kit change until it has adapted, because pins move along one line of history.
+2. Under item 5, name the edits each game needs.
+3. On merge each game's `kit-bump` workflow still opens its pin move, but merges none of them: each
+   waits for the owner.
+4. The edits each game needs are pushed to that game's pin-move pull request, so the pin and the code
+   move together. The owner merges it once its checks pass. If a newer kit change merges first, the
+   bot leaves this pull request open and comments on it: carry the edits onto the newer pin move.
 
 ### (c) A hand edit caught by the hash check
 
