@@ -27,7 +27,7 @@ The **kit** is the code every ORC PUNK web game needs and none should write twic
 
 Today the kit lives inside the Cemetery Security repo, and the second game, Into The Dark, holds a copy. That was the plan while there was one game: the owner decided on 2026-10-11 that the kit would move "when a second game needs it". It now does. Into The Dark cannot change the kit it runs on: a change has to be made in another game's repo, by another agent, and copied back. The owner, 2026-10-13: "now there's two games being built for the site, sound like we should do it, like the input manager for our games". This spec moves the kit to its own repo, `game-kit`, and makes both games equal users of it.
 
-Games do not install the kit as a package. Each game **copies the kit's files into its own repo and commits them** (a "vendored" copy), and keeps a small file, the **pin**, that records which exact commit of `game-kit` the copy came from and a fingerprint (a SHA-256 hash) of every copied file. A **check** in the game's own test run recomputes those fingerprints and fails if any file was edited by hand. So a game always builds from files it holds, nothing changes under it until its own agent moves the pin, and the kit can only be changed in one place. On the day each game switches, not one byte of its kit files changes: only the pin says where they came from.
+Games do not install the kit as a package. Each game **copies the kit's files into its own repo and commits them** (a "vendored" copy), and keeps a small file, the **pin**, that records which exact commit of `game-kit` the copy came from and a fingerprint (a SHA-256 hash) of every copied file. A **check** in the game's own test run recomputes those fingerprints and fails if any file was edited by hand. So a game always builds from files it holds, nothing changes under it without a pull request in its own repo that its own check has passed, and the kit can only be changed in one place. Every game runs the latest kit: a workflow in each game moves its pin to `game-kit`'s `main` after a kit change merges (see "Every game on the latest kit"). On the day each game switches, not one byte of its kit files changes: only the pin says where they came from.
 
 ## Architecture at a Glance
 
@@ -59,7 +59,7 @@ flowchart TD
     CONTRACT -. "read by" .-> SITE["orcpunk.com play page"]
 ```
 
-A change travels one way. It is made in `game-kit`, reviewed there, and merged to `main`. A game then moves its pin to a commit on `main` and runs the sync tool, which copies that commit's files in and records their hashes. From then on the game's own `npm run check` proves the copy is untouched, without needing access to `game-kit`. The other game is not affected until it moves its own pin. `CONTRACT.md` is read by the games and the site and is never copied.
+A change travels one way. It is made in `game-kit`, reviewed there, and merged to `main`. A game then moves its pin to a commit on `main` and runs the sync tool, which copies that commit's files in and records their hashes. From then on the game's own `npm run check` proves the copy is untouched, without needing access to `game-kit`. After a kit change merges, each game's own `kit-bump` workflow moves its pin, runs that game's check, and merges the move if it passes, unless the change is held for the owner. `CONTRACT.md` is read by the games and the site and is never copied.
 
 ## How It Works (Technical)
 
@@ -91,7 +91,7 @@ Every statement this spec makes about another repo was read at one of these comm
 
 **One rule holds the layout together:** everything under `kit/` and `testing/` is copied into every game byte for byte, and nothing else lives in those two folders. So `game-kit` has no `kit/KIT_SOURCE.json`: a game's pin sits at that path and a folder copy would overwrite it. `kit/` and `testing/` stay side by side because each imports the other by relative path.
 
-**The repo's own check.** `npm run check` is `tsc --noEmit && eslint . --max-warnings=0 && vitest run --reporter=verbose`. Dev dependencies only: `typescript` `~5.9.3`, `vitest`, `happy-dom`, `@types/node`, `eslint`, `@eslint/js`, `typescript-eslint`. No `dependencies` block, no `vite`, no `pixi.js`: the kit imports nothing outside itself, and one of its own tests holds that. `tsconfig.json` includes `kit`, `testing` and `tools` and sets `"types": ["node"]` (Into The Dark's also names `vite/client`, which this repo does not install). `.nvmrc` is `22`, the lower of the two games' Node versions. The lint rules are Into The Dark's, because that game lints the copied files with zero warnings allowed and may not edit them. One CI job runs `npm ci` and `npm run check` on pull requests and on pushes to `main`. The repo is private and `UNLICENSED`.
+**The repo's own check.** `npm run check` is `tsc --noEmit && eslint . --max-warnings=0 && vitest run --reporter=verbose`. Dev dependencies only: `typescript` `~5.9.3`, `vitest`, `happy-dom`, `@types/node`, `eslint`, `@eslint/js`, `typescript-eslint`. No `dependencies` block, no `vite`, no `pixi.js`: the kit imports nothing outside itself, and one of its own tests holds that. `tsconfig.json` includes `kit`, `testing` and `tools` and sets `"types": ["node"]` (Into The Dark's also names `vite/client`, which this repo does not install). `.nvmrc` is `22`, the lower of the two games' Node versions. The lint rules are Into The Dark's, because that game lints the copied files with zero warnings allowed and may not edit them. One CI job runs `npm ci` and `npm run check` on pull requests and on pushes to `main`. The repo is public (since 2026-10-14) under the MIT licence, the owner's choice ("MIT is fine"); `package.json` stays `private` so it is never published as a package.
 
 ### The two import commits
 
@@ -248,8 +248,8 @@ The corrections are text only. `kit/host.ts` is types and names no style and no 
 1. What changes for a game that uses the kit: behaviour before and after, and which files.
 2. Why: which game needs it, with a link to that game's pull request or issue.
 3. Breaking or not. Breaking means a game must edit its own code to adopt, or will behave differently without editing anything. If additive, name the default that keeps the old behaviour (`scrollTarget` is the model).
-4. Evidence from the game that asked: the kit branch commit it pinned and its `npm run check` result there. If the change can be seen or felt, also what was watched in a real browser.
-5. The other game: where it uses what changed, by file and quoted call, and what it must do to adopt, or "nothing" with the reason.
+4. Evidence: the kit branch commit a game pinned and its `npm run check` result there, for every game the change touches. If the change can be seen or felt, also what was watched in a real browser, and in which game.
+5. Every game: where it uses what changed, by file and quoted call, and what it must do to adopt, or "nothing" with the reason.
 6. Whether `CONTRACT.md` changes. If it does, the site is a party; link the site issue.
 7. The kit tests added or changed, named by the behaviour they hold.
 
@@ -257,14 +257,13 @@ The corrections are text only. `kit/host.ts` is types and names no style and no 
 
 **(a) A kit change one game needs.**
 
-1. The game's agent branches `game-kit` from `origin/main` in its own clone, makes the change with tests, gets `npm run check` green, and opens the kit pull request with the seven items.
-2. In its game, on a branch: set `commit` to the kit branch head, run `node tools/sync-kit.mjs --from <game-kit>` (the tool notes the commit is not on main), run `npm run check`, and play it if the change is visible. Open the game pull request as a draft whose first line is "Waits on game-kit#N".
-3. If review adds commits to the kit pull request, the game re-pins to the new head and re-syncs. A kit branch is not force-pushed once a game is pinned to it.
-4. The owner merges the kit pull request with a merge commit. The commit the game pinned is now on `main`; no re-pin.
-5. The game's agent fetches `game-kit`, runs `--from <game-kit> --check`, and on exit 0 pastes the output into the game pull request and marks it ready. The owner merges.
-6. The other game does nothing until it next wants a kit change: then it moves its pin to a commit on `main`, syncs, runs `npm run check` and plays.
+1. The game's agent branches `game-kit` from `origin/main` in its own clone, makes the change with tests, gets `npm run check` green, and opens the kit pull request with the seven items. The change is additive: an existing function called with the same arguments behaves as before.
+2. The asking game's agent pins the kit branch in a draft game pull request, runs `npm run check` there, and plays it if the change can be seen or felt. That is item 4.
+3. The owner merges the kit pull request with a merge commit.
+4. Within the hour, each game's `kit-bump` workflow moves its pin and merges the move once that game's own check passes. Every game's repo is now on the change; the bot's merge starts no workflow, so nothing deploys it until the game's workflows next run.
+5. The asking game uses the new code in an ordinary pull request of its own. Its pin has already moved.
 
-**(b) A change that breaks the other game.** As (a), plus: the kit pull request title starts `BREAKING:`; item 5 names the edits the other game will need; and on merge the author opens an issue in the other game's repo with the commit, what changes and what to edit. The other game is not broken by the merge, because its pin has not moved. It adapts in one pull request that moves the pin and edits its code together. The cost comes later: it cannot take any newer kit change without adapting first. So prefer an additive change with a default that keeps the old behaviour.
+**(b) A change that is not additive.** Its title starts `BREAKING:`, and item 5 names the edits each game needs. On merge each game's `kit-bump` workflow still opens its pin move, but merges none of them: each waits for the owner. The edits each game needs are pushed to that game's pin-move pull request, so the pin and the code move together, and the owner merges it once its checks pass. Prefer an additive change with a default that keeps the old behaviour: it costs one pull request instead of one per game.
 
 **(c) A hand edit caught by the hash check.** `npm run check` fails with `these files differ from the hashes recorded for <commit>`.
 
@@ -273,6 +272,21 @@ The corrections are text only. `kit/host.ts` is types and names no style and no 
 3. If the edit is wanted, apply it on a `game-kit` branch and follow (a).
 4. If it is not, `node tools/sync-kit.mjs --from <game-kit>` restores the pinned bytes.
 5. Never quiet the check by editing a hash in the pin.
+
+### Every game on the latest kit
+
+The amendment of 2026-10-14. Units 4 to 6 build it.
+
+**The bot runs in each game.** `game-kit` is public, so a game can read it with no token of its own. Each game copies `templates/kit-bump.yml` once to `.github/workflows/kit-bump.yml` and sets three values: `KIT_ROOT` (the folder holding its `tools/` and `kit/`), `KIT_BRANCH` (where its work lands) and `KIT_MERGE` (how it merges pull requests). The workflow runs every hour and on demand, one run at a time, with the game's own token. It clones `game-kit`'s `main` and runs `tools/kit-bump.mjs` from that clone, so a fix to the bot reaches every game without an edit in any of them. One run:
+
+1. Stop if the game has no pin, if the pin already names `main`, or if a pin move to `main` is already open.
+2. Decide from every commit on `main`'s first-parent line since the pin, each looked up as the pull request that merged it. **Hold** if any came without a pull request, has a title starting `BREAKING:`, or changes `kit/screens.ts` or `kit/page.ts` (renaming either counts) without the label `additive`. Otherwise merge when green.
+3. On a branch `kit/<short hash>`: move the pin, run the game's own sync tool, commit only the pin and the files it wrote.
+4. Run the game's check (`npm ci && npm run check` in `KIT_ROOT`) in that same run, with no token in its environment. A pull request opened with a repo's own token does not start that repo's other workflows, so the bot cannot wait for them.
+5. Push the branch and open "Move the kit pin to game-kit <short hash>", naming each kit change, the check's result and the decision. A `kit/<short hash>` branch already on the game's origin with no open pull request is the bot's own leftover, from a run that failed to open its pull request or a pin move closed unmerged, and the push replaces it. Close older open pin moves (branches `kit/<short hash>`) as replaced; one that holds someone's edits is left open with a comment.
+6. Merge it with `KIT_MERGE` if the check passed and nothing is held. Otherwise comment why and leave it open. A failed sync or check exits 1, so the run shows red.
+
+The game's repo must allow workflows to open pull requests (Settings, Actions, General). No secret is used anywhere.
 
 ### Failure modes
 
@@ -286,7 +300,15 @@ The corrections are text only. `kit/host.ts` is types and names no style and no 
 | A hand edit to a file together with its hash in the pin | Not caught by CI. Caught by the next `--from --check`, which compares bytes with the pinned commit, and in review: a hash that changes value while `commit` does not. Accepted. A hash edited on its own fails `--check` in CI. |
 | A sync from a dirty checkout, or one on another branch | Nothing goes wrong: the tool reads the pinned commit, never the working files. |
 | A sync over an uncommitted hand edit in the game | The edit is overwritten. Flow (c) step 1 and the failure message both say to save it first. No guard. |
-| A kit change passes the kit's tests and breaks a game | The game finds out when it moves its pin; its old pin keeps working. The failing case goes back as a kit issue and becomes a kit test. |
+| A kit change passes the kit's tests and breaks a game | That game's `kit-bump` run fails its check and does not merge: the game stays on its last good pin, the pull request stays open with the failing output, and the run shows red. The failing case becomes a kit fix and a kit test. Nothing checks a game before the kit change merges; item 4 is the author's evidence for the asking game only. |
+| A change the games' tests cannot see (scrolling, focus, sizing) | Not caught by any check. The bot holds every pin move for a kit change that touches `kit/screens.ts` or `kit/page.ts` without the `additive` label, so a person looks first. The reviewer asks of every kit pull request: with the same arguments, does any existing function behave differently? |
+| A game has no pin file yet, or its sync fails | No pin: the run does nothing and says so in its summary. A failed sync: nothing is pushed, and the run shows red. |
+| A game's pin move is still open when the next kit change merges | The newer pin move replaces it: the bot closes the older one, because a pin holds every change before it. An older one that holds someone's edits (flow (b)) is not closed; the bot comments on it to carry them onto the newer one. |
+| A game's repo does not let workflows open pull requests | The run pushes the branch, then fails at opening the pull request and shows red. The setting is named in the template. Once it is on, the next run replaces the branch it left and opens the pull request. |
+| A person closes a pin move without merging it | Closing does not decline the kit change: the pin still trails `main`, so the next run opens a new pin move within the hour, replacing the closed one's branch. Edits a person pushed to that branch (flow (b)) are gone from it and survive only under the closed pull request's `refs/pull/<number>/head`. |
+| A game deploys or runs CI on a push to its base branch | The bot's merge, made with the repo's own token, starts no workflow there: the repo is on the new kit, its deployed build is not until the game's workflows next run. Not automated. |
+| A game's base branch requires status checks | They never run on the bot's pull request, which the repo's own token opened, so `gh pr merge` fails and the run shows red. The next run finds the pin move open and stops quietly; it waits for a person to merge it. |
+| A change to the bot breaks it | Every game runs the new bot on its next run, from `main`. Its test runs here first, in `npm run check`; a broken run shows red in every game, and fixing `main` fixes every game. |
 | The two games need incompatible behaviour | First an option whose default keeps the old behaviour. If that cannot be done, the owner decides. A game leaving the kit is his call, never an agent's. |
 | A kit file is renamed or removed | The old copy lingers in each game. The kit pull request says so under item 5 and each game deletes it on adopting. Not automated. |
 | A later file in `game-kit`'s `testing/` has the same name as a game's own file there | The sync overwrites the game's file without warning; git shows it in the diff. No guard. |
@@ -296,19 +318,20 @@ The corrections are text only. `kit/host.ts` is types and names no style and no 
 
 Settled by the owner:
 
-- **Its own private repo, `eladrianovalle/game-kit`, with this spec as its first pull request.** His words: "game-kit works".
+- **Its own repo, `eladrianovalle/game-kit`, with this spec as its first pull request.** His words: "game-kit works". Private at first; made public on 2026-10-14 ("go public"), with the Studio and Claude Code files untracked and nothing personal or confidential kept in it.
 - **Of the kit itself, day one holds the 17 files and their test helpers only: exactly what Into The Dark copies today.** The tool, `CONTRACT.md` and the repo's own config sit beside them. The helpers include `testing/literals.ts`, which no kit file uses but both games' tests import.
 - **Games copy the kit in at a pinned commit with a hash check.** Only the source of the copy changes, and Cemetery Security becomes a user like any other game.
 - **The repo joins the review and response fleet.** His words: "let's also get it added to the review/response fleet". Done in orc-review#178 on 2026-10-13, so a reviewer exists from this spec's own pull request on.
+- **Every game runs the latest kit (amended 2026-10-14).** His words: "i don't really want to have games pinning different versions, just want all games on the latest and the package to support all the games it needs", and "in theory we shouldn't be breaking older games behaviors with improvements to game kit". He approved the amendment in the session that wrote it ("yes, amend"). It replaces "each game moves its pin when it chooses" with the bot in each game and the additive rule below. Copies, pins and hash checks stay as they were.
 
 Decided in the debate, with what was rejected:
 
 - **Two import commits, not one.** One commit at Cemetery Security's current version would make Into The Dark's switch of source also a behaviour change nobody has tested there. With two, each game switches to bytes it already holds.
 - **No history rewrite.** The import messages name their sources, and the earlier commits stay in `cemetery-security`. Carrying one feature branch's commits across was not worth rewriting their paths.
-- **A package registry, a git submodule or a git subtree: rejected.** The owner ruled out a registry. A submodule or a clone at build time would need each game's CI to have access to a second private repo. A committed copy with a hash check needs none.
-- **No tags, versions or changelog.** A pin is already an exact version, nobody is forced to move, and the kit pull request body is the release note.
+- **A package registry, a git submodule or a git subtree: rejected.** The owner ruled out a registry. When this was decided, `game-kit` was private, so a submodule or a clone at build time would have needed each game's CI to have access to a second private repo. A committed copy with a hash check needs none.
+- **No tags, versions or changelog.** A pin is already an exact version, every game is moved to the latest by the bot, and the kit pull request body is the release note.
 - **A game's pin must be on `main` before the game merges.** The alternative, letting a game merge on a kit branch commit, is how Into The Dark came to be pinned to a commit that only a feature branch keeps alive. Recorded as an assumption for the owner (open question 7).
-- **The on-main check lives in the tool, as evidence and not as a gate.** The rule failed once when it lived only in people's heads. No CI can run it, because a game's CI cannot reach `game-kit`, so the spec says plainly that the owner's merge order is the control.
+- **The on-main check lives in the tool, as evidence and not as a gate.** The rule failed once when it lived only in people's heads. When this was decided, `game-kit` was private, so no game's CI could run it, and the spec says plainly that the owner's merge order is the control. Since the amendment of 2026-10-14 a pin the bot moves always names `main`'s head; a game's own `npm run check` still never reads `game-kit`.
 - **One compiler in `game-kit`, TypeScript `~5.9.3`.** Type-checking under both games' TypeScript majors here was rejected: each game's own `tsc` already covers the copied files every time it moves its pin. The older compiler is used so a kit change cannot rely on something only the newer one accepts.
 - **No freeze on kit edits in Cemetery Security.** Nothing could enforce it before that repo has a hash check. The first command of its adoption lists any edit made in the meantime.
 - **The tool is copied into games; its test is not.** The copied tool is hash-pinned to a commit where its test passed. Copying the test too would cost Cemetery Security an edit to a config line another of its branches is changing, and the file would run there without being type-checked.
@@ -318,12 +341,24 @@ Decided in the debate, with what was rejected:
 - **Shared build tooling does not move now.** The owner's decision: it follows once two games have shown what is really common.
 - **Hand-offs name places by file and quoted text, never by line number.** One line number cited in the debate was wrong within hours.
 
+Decided for the amendment, with what was rejected:
+
+- **One package, one pin, moved by a bot.** The kit's parts are separate files that barely import each other: the gamepad work added eleven files and changed no existing one. What tied them together was that a game moved its pin by hand and could fall behind. A bot that moves every game on every merge removes that without splitting anything.
+- **The bot runs in each game, with that game's own token, and `game-kit` is public.** The owner: "go public". No secret exists anywhere. The cost: nothing runs a game's check before a kit change merges; the game's own run catches it after, and leaves that game on its last good pin.
+- **Rejected for now: installing the kit as a git dependency.** Being public removes the reason the original debate rejected it. The copy, the hash check and the bot are built and work, and switching would change every kit import line in both games; it can be revisited on its own.
+- **Rejected: Renovate or Dependabot to move pins.** Neither can see which files a kit change touched or how it was titled, so neither can hold a change for the owner except by version number, and the kit has none.
+- **Rejected: a write token held by `game-kit` (the first version of this amendment).** It worked, but the owner asked for no tokens once the repo is public.
+- **Additive by default, held when it is not.** A kit change keeps every existing function's behaviour when called with the same arguments. The bot merges pin moves by itself only then: a `BREAKING:` title, or a change to `kit/screens.ts` or `kit/page.ts` without the `additive` label, makes it wait for the owner. Those two files are where behaviour shows only in a real browser.
+- **Rejected: serving the kit from the site at runtime.** A site deploy would change a game's behaviour with no commit and no check in that game, and the games run without the site in their tests, on their dev servers and on their own Pages sites.
+- **Rejected: separately pinned packages per lane (input, time, screens, page).** It solves with more pins the problem the bot solves with none.
+- **Rejected: moving the page lane behind the host contract.** `kit/page.ts` is the game's half of the contract (it reads the `scroll-margin-top` the contract promises); moving it makes the site an API that must be versioned against games.
+- **Rejected: lockstep by hand**, a pin-move pull request per game opened by each kit author. It is the bot done by hand.
+
 ## Non-Goals / Cut Scope
 
 - A package, registry, submodule or subtree; tags, versions, a changelog.
 - Shared build tooling: `check-dist`, the Pixi build tweak, `extract-constants`, Cemetery Security's literals lint.
-- CI in `game-kit` that runs a game, cross-repo tokens, a bot that moves pins.
-- Into The Dark adopting the newer screen navigation.
+- A game's `npm run check` reaching `game-kit`: its hash check reads only the game's own files. Only the game's `kit-bump` workflow reads `game-kit`.
 - Each game's own font, colour and cross-origin work. That is the site spec's, in the game repos.
 - Tidying the imported files, such as the two test names that still say `web/kit` and `web/game` (in `kit/host.test.ts` and `kit/boundaries.test.ts`), the only game-specific names in kit files. Changing them at import would break byte identity; the first kit pull request that edits either file for another reason renames them.
 - A pull request template, a guard against overwriting a hand edit, automatic deletion of removed files, a check of `repository`.
@@ -332,19 +367,20 @@ Cut by the final review: seven units became three; the commit-order rule and the
 
 ## Risks & Open Questions
 
-1. **Into The Dark will meet a behaviour change it has not tested.** The newer screen navigation scrolls and focuses differently, automated tests are unlikely to show it, and no date is set for adopting it. Until it does, Into The Dark cannot take any other kit change, which is the thing the owner wanted fixed. Its issue says so.
+1. **Into The Dark will meet a behaviour change it has not tested.** The newer screen navigation scrolls and focuses differently, and automated tests are unlikely to show it. Unit 6 adopts it once, by hand, with a browser check, so the bot starts from every game on the latest kit.
 2. **Both hand-offs wait on other agents.** Each game's agent picks its issue up between its own units. Until Cemetery Security adopts, two editable copies of the kit exist and nothing catches an edit there.
 3. **The merge rule is a convention.** Turning off squash and rebase merging removes one accident. It does not stop a force-push to `main` (there is no branch protection today), or a game merging first. The fleet's responder is told to add commits only and never to force-push, rebase or squash (orc-review#178); that is an instruction to an agent, not a setting.
-4. **No single CI proves the kit for both games.** `game-kit` checks under TypeScript 5.9. Cemetery Security is on TypeScript 7 and learns of a compiler-specific problem only when it moves its pin. Its old pin keeps working meanwhile.
-5. **Nobody reviews a kit pull request for its effect on the game its author does not build.** Item 5 of the pull request contents is the author's own account. The fleet's reviewer reads the kit diff and can read both games, but nothing runs the other game against the change. The backstop is that a game is never broken until it chooses to move its pin.
+4. **A pin move is only as good as each game's tests.** The bot runs each game's own `npm run check`, including Cemetery Security's TypeScript 7, so a compile or test failure stops the merge. A behaviour no test looks at is not caught; the hold on `kit/screens.ts` and `kit/page.ts` covers the two files where that is most likely.
+5. **Nobody reviews a kit pull request for its effect on the game its author does not build.** Item 5 of the pull request contents is the author's own account. The fleet's reviewer reads the kit diff and can read both games. Each game's own check then runs against the change in its `kit-bump` run, after merge.
 6. **A review can check an import and cannot check a behaviour change.** The import is checkable by hash, and the fleet's reviewer did recompute this spec's hashes. A change to how the kit behaves is read, by the reviewer and the owner, and not run.
-7. **The hand-off steps were run only in throwaway copies, against a sketch of the tool.** The proofread ran both games' steps and both passed, with `npm run check` green in each (Cemetery Security: 1406 tests). The real tool is written in unit 1, so its exact messages are what unit 1's test pins, and a wording difference there must be carried into the two issues.
+7. **Each game runs code from `game-kit`'s `main` with write access to itself.** The `kit-bump` workflow executes `tools/kit-bump.mjs` as it stands on `main`, so whoever can merge to `game-kit` `main` can change what runs in every game. Only the owner merges there. Up to an hour passes between a kit merge and the pin moves.
+8. **The hand-off steps were run only in throwaway copies, against a sketch of the tool.** The proofread ran both games' steps and both passed, with `npm run check` green in each (Cemetery Security: 1406 tests). The real tool is written in unit 1, so its exact messages are what unit 1's test pins, and a wording difference there must be carried into the two issues.
 
 Open questions for the owner. The build takes the default unless he says otherwise.
 
 | # | Question | Default the build takes | To change it, he says |
 |---|---|---|---|
-| 1 | Is Into The Dark running the current kit part of "done"? | No. This ends when both games copy from `game-kit`. | "Make it a unit." It becomes a fourth unit in that repo; its agent writes the checks and he agrees to a phone check. |
+| 1 | Is Into The Dark running the current kit part of "done"? | Yes, since the amendment: unit 6. | Nothing to say. |
 | 2 | Where does the host contract text live? | `game-kit/CONTRACT.md`, owned here, corrected, with a note on OrcPunk-dotcom#84 and a pointer left in Cemetery Security's spec. | "Leave it in Cemetery Security." No `CONTRACT.md`; that repo's agent makes the corrections and the README links there. Into The Dark then cannot change a contract it is bound by. |
 | 3 | What stands in for review before the fleet takes the repo on? | Closed: nothing has to. The fleet has reviewed this repo since 2026-10-13. | Nothing to say. |
 | 4 | "Cemetery Security deletes its original": a real delete? | No. The files stay at the same paths and become a checked copy, so no import line changes. | "I want it visible." A delete-and-recopy commit; the net diff is the same. |
@@ -398,3 +434,40 @@ What gets built: in `into-the-dark-web`, by that repo's agent, from its issue. S
 - [ ] `CLAUDE.md`, `README.md` and `specs/into-the-dark-web.md` no longer call the Cemetery Security repo the kit's source, and the spec's open question "The kit's home" is closed.
 
 **Out of scope:** the newer `screens.ts`; the vendored tool; any game code.
+
+**The amendment's units (2026-10-14).** Unit 4 is built in `game-kit` on one branch with the amendment itself, as one pull request. Unit 5 is a small pull request in each game; unit 6 is Into The Dark's.
+
+### 4. `gk_kit_bump` — `game-kit` is public, and holds the bot every game runs
+
+What gets built: `tools/kit-bump.mjs` and its test, `templates/kit-bump.yml`, the README's flows and pull request items rewritten to match, and the Studio and Claude Code files untracked. Then the repo is made public.
+
+**Acceptance criteria:**
+- [ ] The decision is a pure function of a kit pull request's title, labels and changed files, tested for: no pull request (hold); a `BREAKING:` title (hold); `kit/screens.ts` or `kit/page.ts` changed without `additive` (hold); the same with `additive` (merge when green); a change to `kit/screens.test.ts` alone (merge when green); any other change (merge when green). Several changes since the pin hold if any one does, with every reason.
+- [ ] A test with temp repos and a fake `gh` shows one run: the pin moves on `kit/<short hash>` with only the pin and the synced files committed, the check runs, the branch is pushed, the pull request is opened and merged with the game's method; and that a hold, a failed check, an older pin move, a game already on `main`, an open pin move and a game with no pin each do what "Every game on the latest kit" says.
+- [ ] `templates/kit-bump.yml` runs every hour and by hand, one run at a time, uses only the repo's own token, reads `game-kit` over public https, and calls the bot with its three values.
+- [ ] No file under `.claude/` or `.studio/` is tracked, and no tracked file holds a personal detail beyond what the owner's GitHub profile already shows.
+- [ ] `npm run check` passes.
+
+**Out of scope:** a check of every game before a kit change merges; any game's repo.
+
+### 5. `gk_games_run_bump` — each game runs the bot
+
+What gets built: in `cemetery-security` and in `into-the-dark-web`, one pull request each, adding `.github/workflows/kit-bump.yml` from the template with that game's three values (`web`, `dev`, `squash` and `.`, `main`, `merge`), and turning on "Allow GitHub Actions to create and approve pull requests". Each pull request names what the repo's own token cannot do in that game: the bot's merge starts no workflow on the base branch, so no deploy and no CI follow it, and a base branch that requires status checks makes the bot's merge fail, because no check runs on its pull request. Each waits on that game having a pin from `game-kit` (`gk_cs_adopts`, `gk_itd_switches_source`).
+
+**Acceptance criteria:**
+- [ ] The workflow file is the template with only the three values changed.
+- [ ] A run started by hand on a game already on `main` ends green with "the pin already names game-kit main" in its summary.
+
+**Out of scope:** any other file in the game.
+
+### 6. `gk_itd_catches_up` — Into The Dark runs the latest kit
+
+What gets built: in `into-the-dark-web`, on top of `gk_itd_switches_source`. Its pin moves to the head of `game-kit` `main`, with the third `copies` entry (`tools/sync-kit.mjs`), so it takes the newer screen navigation and game-kit's tool. Its own `tools/sync-kit.test.ts` is deleted. Its own `element.scrollIntoView({ block: 'start' })` in the Play branch of `game/mount-game.ts` is kept, removed or replaced by a `scrollTarget`, whichever a browser check shows is right, with the reason in the pull request.
+
+**Acceptance criteria:**
+- [ ] `kit/KIT_SOURCE.json` names the head of `game-kit` `origin/main` and has three `copies` entries; `node tools/sync-kit.mjs --from <game-kit> --check` exits 0.
+- [ ] `tools/sync-kit.test.ts` is gone, `tools/sync-kit.mjs` is game-kit's, and `npm run check` passes.
+- [ ] The pull request records a real browser going Title to Play, Play to Settings and back, and a tall screen to a short one, at a desktop size and at a phone size, with no second scroll on entering Play and no heading left above the visible area.
+
+**Out of scope:** any other game code; the gamepad work.
+

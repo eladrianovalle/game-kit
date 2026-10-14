@@ -2,7 +2,7 @@
   "name": "game-kit",
   "version": "0.0.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "description": "The shared kit for ORC PUNK's web games. Games copy kit/ and testing/ from here at a pinned commit; nothing is installed from this package.",
   "engines": {
