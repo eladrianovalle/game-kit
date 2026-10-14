@@ -574,7 +574,7 @@ describe('games.mjs move-pin: one game\'s pin move, in a temp game repo', () => 
 
 // A fake `gh`: logs every call, and answers from a scenario file.
 interface Scenario {
-  open?: { number: number; url: string; headRefName: string }[];
+  open?: { number: number; url: string; headRefName: string; commits?: unknown[] }[];
   created?: string;
   views?: unknown[][];
   mergeFails?: boolean;
@@ -656,6 +656,19 @@ describe('games.mjs open-pr: the pin-move pull request in a game', () => {
     expect(closes[0].slice(0, 5)).toEqual(['pr', 'close', 'https://github.com/owner/game/pull/30', '--repo', 'owner/game']);
     expect(closes[0][6]).toContain(`Replaced by ${NEW_PULL}`);
     expect(calls.indexOf(create)).toBeLessThan(calls.indexOf(closes[0]));
+  });
+
+  it('leaves open, with a comment, an older pin move that holds edits beyond the bot\'s commit', () => {
+    const gh = fakeGh({
+      created: NEW_PULL,
+      open: [{ number: 30, url: 'https://github.com/owner/game/pull/30', headRefName: 'kit/aaaaaaaaaaaa', commits: [{}, {}] }],
+    });
+    runWith(gh.env, 'open-pr', '--repo', 'owner/game', '--base', 'dev', '--head', 'kit/cccccccccccc', '--commit', KIT_SHA, '--decision', JSON.stringify(HOLD_DECISION), '--kit-repo', 'owner/game-kit');
+    const calls = gh.calls();
+    expect(calls.filter((call) => call[1] === 'close')).toHaveLength(0);
+    const comment = calls.find((call) => call[1] === 'comment') ?? [];
+    expect(comment.slice(0, 5)).toEqual(['pr', 'comment', 'https://github.com/owner/game/pull/30', '--repo', 'owner/game']);
+    expect(comment[6]).toContain(`carry them onto ${NEW_PULL}`);
   });
 
   it('names a hold and a direct push in the body', () => {

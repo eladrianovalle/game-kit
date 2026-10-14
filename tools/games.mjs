@@ -320,16 +320,24 @@ export function pinMovePullRequest({ commit, decision, kitRepo }) {
   };
 }
 
-/** Opens the pin-move pull request, or reuses the open one from that head, and closes older open kit/* pull requests. Returns its address. */
+/**
+ * Opens the pin-move pull request, or reuses the open one from that head, and closes older open kit/* pull requests.
+ * An older one holding more than the bot's single commit carries someone's edits (flow (b)), so it is left open with a
+ * comment instead of closed. Returns its address.
+ */
 export function openPinMove({ repo, base, head, commit, decision, kitRepo }) {
-  const open = JSON.parse(runGh('pr', 'list', '--repo', repo, '--state', 'open', '--limit', '200', '--json', 'number,url,headRefName'));
+  const open = JSON.parse(runGh('pr', 'list', '--repo', repo, '--state', 'open', '--limit', '200', '--json', 'number,url,headRefName,commits'));
   let url = open.find((pull) => pull.headRefName === head)?.url;
   if (url === undefined) {
     const { title, body } = pinMovePullRequest({ commit, decision, kitRepo });
     url = runGh('pr', 'create', '--repo', repo, '--base', base, '--head', head, '--title', title, '--body', body).trim().split('\n').pop();
   }
   for (const older of open.filter((pull) => pull.headRefName.startsWith('kit/') && pull.headRefName !== head)) {
-    runGh('pr', 'close', older.url, '--repo', repo, '--comment', `Replaced by ${url}, which moves the pin to a newer game-kit commit. A pin holds every kit change before it.`);
+    if ((older.commits?.length ?? 1) > 1) {
+      runGh('pr', 'comment', older.url, '--repo', repo, '--body', `${url} moves the pin to a newer game-kit commit. This pull request holds edits beyond the pin move, so it is left open: carry them onto ${url}, then close this one.`);
+    } else {
+      runGh('pr', 'close', older.url, '--repo', repo, '--comment', `Replaced by ${url}, which moves the pin to a newer game-kit commit. A pin holds every kit change before it.`);
+    }
   }
   return url;
 }

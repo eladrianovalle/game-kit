@@ -167,7 +167,8 @@ instead of one per game. When that cannot be done:
 3. On merge the bot still opens a pin move in every game, but merges none of them: each waits for the
    owner.
 4. The edits each game needs are pushed to that game's pin-move pull request, so the pin and the code
-   move together. The owner merges it once its checks pass.
+   move together. The owner merges it once its checks pass. If a newer kit change merges first, the
+   bot leaves this pull request open and comments on it: carry the edits onto the newer pin move.
 
 ### (c) A hand edit caught by the hash check
 
