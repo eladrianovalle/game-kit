@@ -218,6 +218,9 @@ describe('screens and the page\'s scroll', () => {
   it('with scrollWhenTopHidden, a top under the host\'s sticky bar counts as hidden; one at or below the bar does not', () => {
     for (const [top, scrolled] of [
       [40, true],
+      // The pixel of slack: just past it is hidden, just inside it is seen.
+      [54.5, true],
+      [55.5, false],
       [56, false],
       [120, false],
     ] as const) {
