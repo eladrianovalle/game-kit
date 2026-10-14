@@ -1,0 +1,141 @@
+# The bot: every push to main moves every game's kit pin to the pushed commit, in
+# a pull request per game, and merges each once that game's checks pass, unless
+# the change is held for the owner. One run at a time: a newer run waits for the
+# one in progress, and a pin holds every kit change before it.
+# The decision and every step that is more than one command live in
+# tools/games.mjs; this file only calls it, git and gh.
+name: bump
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: kit-bump
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  decide:
+    name: decide, once for every game
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      games: ${{ steps.games.outputs.games }}
+      decision: ${{ steps.decide.outputs.decision }}
+    steps:
+      - name: Require the KIT_GAMES_TOKEN secret
+        env:
+          KIT_GAMES_TOKEN: ${{ secrets.KIT_GAMES_TOKEN }}
+        run: |
+          if [ -z "$KIT_GAMES_TOKEN" ]; then
+            echo "::error::The KIT_GAMES_TOKEN secret is empty or missing, so the games cannot be checked out: add it to game-kit's Actions secrets."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - id: games
+        run: echo "games=$(node tools/games.mjs matrix)" >> "$GITHUB_OUTPUT"
+
+      - name: Find the merged pull request and decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" > "$RUNNER_TEMP/pulls.json"
+          number="$(node tools/games.mjs merged-pull --pulls "$RUNNER_TEMP/pulls.json" --sha "$GITHUB_SHA")"
+          : > "$RUNNER_TEMP/files.txt"
+          if [ -n "$number" ]; then
+            gh api "repos/${{ github.repository }}/pulls/$number/files" --paginate --jq '.[].filename' > "$RUNNER_TEMP/files.txt"
+          fi
+          node tools/games.mjs decide --pulls "$RUNNER_TEMP/pulls.json" --sha "$GITHUB_SHA" --files "$RUNNER_TEMP/files.txt" --output "$GITHUB_OUTPUT"
+
+  bump:
+    name: ${{ matrix.game.repo }}
+    needs: decide
+    runs-on: ubuntu-latest
+    # 30 minutes of waiting for the game's checks, and the rest.
+    timeout-minutes: 45
+    strategy:
+      # One game's failure must not stop another's pin move.
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        game: ${{ fromJSON(needs.decide.outputs.games) }}
+    env:
+      DECISION: ${{ needs.decide.outputs.decision }}
+      KIT_PULL: ${{ fromJSON(needs.decide.outputs.decision).pullRequest && fromJSON(needs.decide.outputs.decision).pullRequest.number || '' }}
+    steps:
+      # Full history, so origin/main exists for the game's sync tool.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      # Kept credentials, so the pin-move branch can be pushed with the token.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.game.repo }}
+          ref: ${{ matrix.game.branch }}
+          token: ${{ secrets.KIT_GAMES_TOKEN }}
+          path: game
+
+      - name: Move the pin and commit the synced files on kit/<short hash>
+        id: move
+        env:
+          GAME_ROOT_IN_CHECKOUT: ${{ matrix.game.root }}
+        run: |
+          git -C game config user.name "game-kit bot"
+          git -C game config user.email "game-kit-bot@users.noreply.github.com"
+          node tools/games.mjs move-pin --game game --root "$GAME_ROOT_IN_CHECKOUT" --commit "$GITHUB_SHA" --from . --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Say on the kit pull request that this game was skipped
+        if: steps.move.outputs.skipped != '' && env.KIT_PULL != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SKIPPED: ${{ steps.move.outputs.skipped }}
+          GAME: ${{ matrix.game.repo }}
+        run: gh pr comment "$KIT_PULL" --repo "$GITHUB_REPOSITORY" --body "The bot skipped $GAME: $SKIPPED"
+
+      - name: Push the branch
+        if: steps.move.outputs.moved == 'true'
+        env:
+          BRANCH: ${{ steps.move.outputs.branch }}
+        run: |
+          if git -C game ls-remote --exit-code --heads origin "$BRANCH" > /dev/null; then
+            echo "$BRANCH is already on the game's remote; its open pull request is reused"
+          else
+            git -C game push origin "$BRANCH"
+          fi
+
+      - name: Open the pin-move pull request and close older kit/* ones
+        id: open
+        if: steps.move.outputs.moved == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.KIT_GAMES_TOKEN }}
+          GAME: ${{ matrix.game.repo }}
+          BASE: ${{ matrix.game.branch }}
+          BRANCH: ${{ steps.move.outputs.branch }}
+        run: node tools/games.mjs open-pr --repo "$GAME" --base "$BASE" --head "$BRANCH" --commit "$GITHUB_SHA" --decision "$DECISION" --kit-repo "$GITHUB_REPOSITORY" --output "$GITHUB_OUTPUT"
+
+      - name: Merge when green, or comment why it stays open
+        if: steps.move.outputs.moved == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.KIT_GAMES_TOKEN }}
+          GAME: ${{ matrix.game.repo }}
+          MERGE: ${{ matrix.game.merge }}
+          PULL: ${{ steps.open.outputs.url }}
+        run: node tools/games.mjs finish --repo "$GAME" --pr "$PULL" --decision "$DECISION" --merge "$MERGE" --timeout-seconds 1800 --summary "$GITHUB_STEP_SUMMARY"
