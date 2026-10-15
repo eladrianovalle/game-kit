@@ -556,6 +556,32 @@ describe('kit-bump check, then publish: the check never runs where a token can w
     expect(named(gh.calls(), 'pr', 'create')).toHaveLength(0);
   });
 
+  it('a pin move to the commit already open: check records nothing, publish asks again and does nothing', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    const gh = fakeGh({ pulls: pulls(kit), open: [{ number: 40, url: NEW_PULL, headRefName: `kit/${kit.head.slice(0, 12)}` }] });
+    const { checked, published, result } = checkThenPublish(game, kit, gh.env);
+
+    expect(checked.status).toBe(0);
+    expect(result).toEqual({});
+    expect(published).toEqual({ status: 0, output: expect.stringContaining('nothing to publish') });
+    expect(named(gh.calls(), 'pr', 'list')).toHaveLength(2);
+    expect(git(game, 'ls-remote', '--heads', 'origin', 'kit/*')).toBe('');
+    expect(named(gh.calls(), 'pr', 'create')).toHaveLength(0);
+  });
+
+  it('publish refuses a result of null with the one line every unreadable result gets', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    const gh = fakeGh({ pulls: pulls(kit) });
+    const result = join(temporaryFolder(), 'result.json');
+    writeFileSync(result, 'null\n');
+    const published = runBot(gh.env, 'publish', '--game', game, '--root', '.', '--kit', kit.checkout, '--kit-commit', kit.head, '--kit-repo', KIT_REPO, '--repo', GAME_REPO, '--base', 'main', '--merge', 'squash', '--result', result);
+
+    expect(published).toEqual({ status: 2, output: expect.stringContaining(`cannot read ${result}: not a JSON object`) });
+    expect(gh.calls()).toEqual([]);
+  });
+
   it('publish reads the result only as a regular file: a link in its place is refused', () => {
     const kit = buildKit();
     const game = buildGame(kit);

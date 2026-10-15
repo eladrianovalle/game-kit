@@ -413,8 +413,9 @@ export function runCheckJob({ game, root, kit, repo, check = DEFAULT_CHECK, resu
  * or installs anything: from a fresh checkout it makes the same pin move again with the game's own
  * sync tool, pushes that, and takes from `check` only whether the check passed. The commit `check`
  * tested is never pushed, so nothing the check ran can change what is merged. The check wrote the
- * result file, so it can always say it passed; that much is inherent. It cannot also choose the
- * commit: `kitCommit` is what the workflow recorded before the check ran, and the result must name it.
+ * result file, so it can always say it passed or failed; that much is inherent. It cannot also choose
+ * the commit: `kitCommit` is what the workflow recorded before the check ran, and the result must name
+ * it. Nor can it hold a move back unseen: a result that names no commit is refused while a move is due.
  */
 export function runPublishJob({ game, root, kit, kitCommit, kitRepo, repo, base, merge, result, summary }) {
   checkMergeMethod(merge);
@@ -428,6 +429,9 @@ export function runPublishJob({ game, root, kit, kitCommit, kitRepo, repo, base,
       throw new Error('not a regular file');
     }
     checked = JSON.parse(readFileSync(result, 'utf8'));
+    if (checked === null || typeof checked !== 'object') {
+      throw new Error('not a JSON object');
+    }
   } catch (error) {
     throw new CannotTell(`cannot read ${result}: ${error.message.split('\n')[0]}`);
   }
