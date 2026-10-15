@@ -5,7 +5,12 @@
 #
 # The logic is game-kit's tools/kit-bump.mjs, read from game-kit's main on
 # every run, so this file rarely changes. game-kit is public, so the repo's own
-# token is all it needs. Copied from game-kit's templates/kit-bump.yml into
+# token is all it needs. Two jobs: `check` runs the game's check, with every
+# install script, holding a token that can only read; `publish`, on a fresh
+# runner, makes the same pin move again without running anything of the
+# game's but its sync tool, and is the only job that can write.
+#
+# Copied from game-kit's templates/kit-bump.yml into
 # .github/workflows/kit-bump.yml: set the three values under `env`.
 #
 # The repo must let workflows open pull requests: Settings, Actions, General,
@@ -22,9 +27,8 @@ concurrency:
   group: kit-bump
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  pull-requests: write
+# Each job asks for what it needs.
+permissions: {}
 
 env:
   # The folder that holds this game's tools/ and kit/.
@@ -35,19 +39,25 @@ env:
   KIT_MERGE: merge
 
 jobs:
-  bump:
+  check:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      kit: ${{ steps.kit.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.KIT_BRANCH }}
-          # The game's check runs in this checkout, with every install script: keep no token in
-          # .git/config. kit-bump.mjs hands the token to git for its push alone.
           persist-credentials: false
 
-      - name: Read game-kit's main
-        run: git clone --quiet https://github.com/eladrianovalle/game-kit.git "$RUNNER_TEMP/game-kit"
+      - id: kit
+        name: Read game-kit's main
+        run: |
+          git clone --quiet https://github.com/eladrianovalle/game-kit.git "$RUNNER_TEMP/game-kit"
+          echo "commit=$(git -C "$RUNNER_TEMP/game-kit" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - id: node
         name: Choose the game's Node version
@@ -61,14 +71,56 @@ jobs:
         with:
           node-version: ${{ steps.node.outputs.version }}
 
-      - name: Move the kit pin
+      - name: Move the kit pin and run the check
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          node "$RUNNER_TEMP/game-kit/tools/kit-bump.mjs" run \
-            --game . --root "$KIT_ROOT" \
-            --kit "$RUNNER_TEMP/game-kit" --kit-repo eladrianovalle/game-kit \
-            --repo "$GITHUB_REPOSITORY" --base "$KIT_BRANCH" --merge "$KIT_MERGE" \
+          node "$RUNNER_TEMP/game-kit/tools/kit-bump.mjs" check \
+            --game . --root "$KIT_ROOT" --kit "$RUNNER_TEMP/game-kit" \
+            --repo "$GITHUB_REPOSITORY" --result "$RUNNER_TEMP/kit-bump-result.json" \
             --summary "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kit-bump-result
+          path: ${{ runner.temp }}/kit-bump-result.json
+
+  publish:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.KIT_BRANCH }}
+          persist-credentials: false
+
+      - name: Read game-kit at the commit the check used
+        env:
+          KIT_COMMIT: ${{ needs.check.outputs.kit }}
+        run: |
+          git clone --quiet https://github.com/eladrianovalle/game-kit.git "$RUNNER_TEMP/game-kit"
+          git -C "$RUNNER_TEMP/game-kit" merge-base --is-ancestor "$KIT_COMMIT" origin/main
+          git -C "$RUNNER_TEMP/game-kit" checkout --quiet --detach "$KIT_COMMIT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: kit-bump-result
+          path: ${{ runner.temp }}
+
+      - name: Push the pin move, open its pull request, and merge it or say why not
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          node "$RUNNER_TEMP/game-kit/tools/kit-bump.mjs" publish \
+            --game . --root "$KIT_ROOT" --kit "$RUNNER_TEMP/game-kit" \
+            --kit-repo eladrianovalle/game-kit --repo "$GITHUB_REPOSITORY" \
+            --base "$KIT_BRANCH" --merge "$KIT_MERGE" \
+            --result "$RUNNER_TEMP/kit-bump-result.json" --summary "$GITHUB_STEP_SUMMARY"

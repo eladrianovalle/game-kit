@@ -145,7 +145,15 @@ if (args[0] === 'api') {
     process.stdout.write(names.join('\\n') + '\\n');
   }
 } else if (args[0] === 'pr' && args[1] === 'list') {
-  process.stdout.write(JSON.stringify(scenario.open || []));
+  // As GitHub does, refuse a list that asks for every pull request's commits.
+  if ((args[args.indexOf('--json') + 1] || '').split(',').includes('commits')) {
+    process.stderr.write('GraphQL: By the time this query traverses to the authors connection, it is requesting up to 1,000,000 possible nodes\\n');
+    process.exit(1);
+  }
+  process.stdout.write(JSON.stringify((scenario.open || []).map(({ commits, ...pull }) => pull)));
+} else if (args[0] === 'pr' && args[1] === 'view') {
+  const pull = (scenario.open || []).find((candidate) => candidate.url === args[2]);
+  process.stdout.write(JSON.stringify({ commits: (pull && pull.commits) || [{}] }));
 } else if (args[0] === 'pr' && args[1] === 'create' && scenario.createFails) {
   process.stderr.write('pull request create failed: GitHub Actions is not permitted to create or approve pull requests\\n');
   process.exit(1);
@@ -422,7 +430,100 @@ describe('kit-bump run: one run in a game', () => {
   });
 });
 
-describe('originAuthEnv: the token reaches git for the push alone', () => {
+/** The workflow's two jobs: `check` in the game checkout, then `publish` in a fresh clone of its origin, as on a new runner. */
+function checkThenPublish(game: string, kit: Kit, env: Record<string, string>, check = 'true', head?: string) {
+  const result = join(temporaryFolder(), 'result.json');
+  const checked = runBot(env, 'check', '--game', game, '--root', '.', '--kit', kit.checkout, '--repo', GAME_REPO, '--result', result, '--check', check);
+  if (head !== undefined) {
+    writeFileSync(result, JSON.stringify({ ...JSON.parse(readFileSync(result, 'utf8')), head }));
+  }
+  const fresh = temporaryFolder();
+  execFileSync('git', ['clone', '-q', '--branch', 'main', git(game, 'remote', 'get-url', 'origin'), fresh]);
+  const published = runBot(env, 'publish', '--game', fresh, '--root', '.', '--kit', kit.checkout, '--kit-repo', KIT_REPO, '--repo', GAME_REPO, '--base', 'main', '--merge', 'squash', '--result', result);
+  return { checked, published, fresh, result: JSON.parse(readFileSync(result, 'utf8')) as { head?: string; passed?: boolean } };
+}
+
+describe('kit-bump check, then publish: the check never runs where a token can write', () => {
+  const pulls = (kit: Kit) => ({ [kit.head]: { number: 12, title: 'Clock: a pause', files: ['kit/clock.ts'] } });
+
+  it('check runs the check and records the commit; publish pushes its own pin move, opens the pull request and merges it', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    const gh = fakeGh({ pulls: pulls(kit) });
+    const { checked, published, fresh, result } = checkThenPublish(game, kit, { ...gh.env, GH_TOKEN: 'a-token' }, 'test -z "$GH_TOKEN" && test -z "$GITHUB_TOKEN"');
+
+    expect(checked.status, checked.output).toBe(0);
+    expect(result).toMatchObject({ head: kit.head, passed: true });
+    expect(published.status, published.output).toBe(0);
+    const branch = `kit/${kit.head.slice(0, 12)}`;
+    expect(git(fresh, 'show', '--name-only', '--format=', `origin/${branch}`).split('\n').sort()).toEqual(['kit/KIT_SOURCE.json', 'kit/clock.ts', 'testing/fake-time.ts']);
+    expect(named(gh.calls(), 'pr', 'merge')).toEqual([['pr', 'merge', NEW_PULL, '--repo', GAME_REPO, '--squash', '--delete-branch']]);
+  });
+
+  it('check opens nothing and pushes nothing: only publish talks to GitHub with more than a list', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    const gh = fakeGh({ pulls: pulls(kit) });
+    const result = join(temporaryFolder(), 'result.json');
+    expect(runBot(gh.env, 'check', '--game', game, '--root', '.', '--kit', kit.checkout, '--repo', GAME_REPO, '--result', result, '--check', 'true').status).toBe(0);
+    expect(gh.calls().map((call) => call.slice(0, 2).join(' '))).toEqual(['pr list']);
+    expect(git(game, 'ls-remote', '--heads', 'origin', 'kit/*')).toBe('');
+  });
+
+  it('a commit the check changed is never what is pushed', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    const gh = fakeGh({ pulls: pulls(kit) });
+    const amend = `git -c user.name=x -c user.email=x@example.invalid commit -q --amend -m planted && echo planted > ${'planted.txt'}`;
+    const { published, fresh } = checkThenPublish(game, kit, gh.env, amend);
+
+    expect(published.status, published.output).toBe(0);
+    const pushed = git(fresh, 'log', '-1', '--format=%s', `origin/kit/${kit.head.slice(0, 12)}`);
+    expect(pushed).toBe(`Move the kit pin to game-kit ${kit.head.slice(0, 12)}`);
+  });
+
+  it('a failed check: publish opens the pull request, comments the output, does not merge, exits 1', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    const gh = fakeGh({ pulls: pulls(kit) });
+    const { checked, published, result } = checkThenPublish(game, kit, gh.env, 'echo the clock test failed; exit 3');
+
+    expect(checked.status).toBe(0);
+    expect(result.passed).toBe(false);
+    expect(published.status).toBe(1);
+    expect(named(gh.calls(), 'pr', 'merge')).toHaveLength(0);
+    expect(bodyOf(named(gh.calls(), 'pr', 'comment')[0])).toContain('the clock test failed');
+  });
+
+  it('publish believes only a commit on game-kit main: another is refused with one line and nothing pushed', () => {
+    const kit = buildKit();
+    const side = commitAll(kit.checkout, 'not on main', { 'kit/clock.ts': 'export const clock = 9;\n' });
+    const game = buildGame(kit);
+    const gh = fakeGh({ pulls: pulls(kit) });
+    const { published } = checkThenPublish(game, kit, gh.env, 'true', side);
+
+    expect(published).toEqual({ status: 2, output: expect.stringContaining('is not on game-kit main') });
+    expect(git(game, 'ls-remote', '--heads', 'origin', 'kit/*')).toBe('');
+    expect(named(gh.calls(), 'pr', 'create')).toHaveLength(0);
+  });
+
+  it('with nothing to do, check records nothing and publish does nothing', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    setPinCommit(game, kit.head);
+    git(game, 'commit', '-q', '-am', 'already on main');
+    git(game, 'push', '-q', 'origin', 'main');
+    const gh = fakeGh({});
+    const { checked, published, result } = checkThenPublish(game, kit, gh.env);
+
+    expect(checked.status).toBe(0);
+    expect(result).toEqual({});
+    expect(published).toEqual({ status: 0, output: expect.stringContaining('nothing to publish') });
+    expect(gh.calls()).toEqual([]);
+  });
+});
+
+describe('originAuthEnv: the token reaches git for the push, and github.com, alone', () => {
   it('gives git the token through a credential helper, never in a config value or argument', () => {
     const env = originAuthEnv({ PATH: process.env.PATH, GH_TOKEN: 'token-for-the-test' });
     for (const [name, value] of Object.entries(env)) {
@@ -433,6 +534,13 @@ describe('originAuthEnv: the token reaches git for the push alone', () => {
     const answer = execFileSync('git', ['credential', 'fill'], { input: 'protocol=https\nhost=github.com\n\n', env, encoding: 'utf8' });
     expect(answer).toContain('username=x-access-token');
     expect(answer).toContain('password=token-for-the-test');
+  });
+
+  it('gives it to https://github.com alone: asked for another host, git fails without it', () => {
+    const env = originAuthEnv({ PATH: process.env.PATH, GH_TOKEN: 'token-for-the-test' });
+    const asked = spawnSync('git', ['credential', 'fill'], { input: 'protocol=https\nhost=evil.example\n\n', env, encoding: 'utf8' });
+    expect(asked.status).not.toBe(0);
+    expect(asked.stdout).not.toContain('token-for-the-test');
   });
 
   it('falls back to GITHUB_TOKEN, and leaves the environment alone with no token', () => {
@@ -454,19 +562,35 @@ describe('templates/kit-bump.yml: the workflow a game copies', () => {
   it('uses only the repo\'s own token and reads game-kit over public https', () => {
     expect(template).not.toContain('secrets.');
     expect(template).toContain('GH_TOKEN: ${{ github.token }}');
-    expect(template).toMatch(/permissions:\n\s+contents: write\n\s+pull-requests: write/);
     expect(template).toContain('git clone --quiet https://github.com/eladrianovalle/game-kit.git');
   });
 
-  it('keeps no token in the game checkout, where the check and its install scripts run', () => {
-    expect(template).toMatch(/uses: actions\/checkout@v4\n\s+with:\n(\s+.*\n)*?\s+persist-credentials: false/);
+  it('runs the check in a job that can only read, and writes only in a later job that runs no check', () => {
+    expect(template).toMatch(/^permissions: \{\}$/m);
+    const [, checkJob, publishJob] = template.split(/^ {2}(?:check|publish):$/m);
+    expect(checkJob).toMatch(/permissions:\n\s+contents: read\n\s+pull-requests: read/);
+    expect(checkJob).not.toContain('write');
+    expect(checkJob).toContain('tools/kit-bump.mjs" check');
+    expect(publishJob).toContain('needs: check');
+    expect(publishJob).toMatch(/permissions:\n\s+contents: write\n\s+pull-requests: write/);
+    expect(publishJob).toContain('tools/kit-bump.mjs" publish');
+    expect(publishJob).not.toMatch(/npm|--check|setup-node/);
+  });
+
+  it('keeps no token in either job\'s checkout', () => {
+    expect(template.match(/uses: actions\/checkout@v4\n\s+with:\n\s+ref: .*\n\s+persist-credentials: false/g)).toHaveLength(2);
+  });
+
+  it('publish uses game-kit at the commit check used, and only one on main', () => {
+    expect(template).toContain('merge-base --is-ancestor "$KIT_COMMIT" origin/main');
+    expect(template).toContain('checkout --quiet --detach "$KIT_COMMIT"');
   });
 
   it('runs kit-bump.mjs from the clone with the game\'s three values', () => {
     for (const name of ['KIT_ROOT', 'KIT_BRANCH', 'KIT_MERGE']) {
       expect(template).toMatch(new RegExp(`^  ${name}: \\S+`, 'm'));
     }
-    expect(template).toContain('tools/kit-bump.mjs" run');
+    expect(template).not.toContain('tools/kit-bump.mjs" run');
     expect(template).toContain('--root "$KIT_ROOT"');
     expect(template).toContain('--base "$KIT_BRANCH" --merge "$KIT_MERGE"');
   });
