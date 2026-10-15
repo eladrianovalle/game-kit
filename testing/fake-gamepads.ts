@@ -93,14 +93,20 @@ export function createFakeGamepads() {
             setStick(position[0], position[1]);
           }
         },
-        /** Let a button go, or let the stick back to its centre. */
+        /**
+         * Let a button go, or let the stick back to its centre. A stick input centres the stick
+         * only while the stick is pushed that way: releasing one it is not pushed toward does nothing.
+         */
         release(input: PadInput): void {
           const index = BUTTON_INDEX[input];
           if (index !== undefined) {
             pad.buttonsDown.delete(index);
             return;
           }
-          setStick(0, 0);
+          const position = STICK_POSITION[input];
+          if (position !== undefined && pad.stickX * position[0] + pad.stickY * position[1] > 0) {
+            setStick(0, 0);
+          }
         },
         /** Put the left stick somewhere. Each value runs from -1 to 1, and y is negative upward. */
         stick: setStick,

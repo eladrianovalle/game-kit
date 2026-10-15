@@ -91,6 +91,21 @@ describe('fake gamepads', () => {
     expect(stick()).toEqual([0, 0]);
   });
 
+  it('leaves the stick where it is on release of a stick input it is not pushed toward', () => {
+    const fake = createFakeGamepads();
+    const pad = fake.connect();
+    const stick = () => fake.environment.getGamepads()[0]!.axes.slice(0, 2);
+    pad.hold('stick-right');
+    pad.release('stick-up');
+    pad.release('stick-left');
+    expect(stick()).toEqual([1, 0]);
+    pad.stick(0.6, -0.6);
+    pad.release('stick-down');
+    expect(stick()).toEqual([0.6, -0.6]);
+    pad.release('stick-up');
+    expect(stick()).toEqual([0, 0]);
+  });
+
   it('leaves null in the place of a disconnected pad, and the other pads where they were', () => {
     const fake = createFakeGamepads();
     const first = fake.connect();
