@@ -5,13 +5,17 @@
 // change to the bot reaches every game without touching the games.
 //
 // The workflow runs it twice, in two jobs, so the game's check never runs where
-// a token that can write is:
+// the repo's token can write. (The check job's runner still holds the runtime
+// token that writes artifacts and the Actions cache. publish takes one file from
+// the artifact and restores no cache; a game's other workflows that restore a
+// cache saved on its base branch are outside this bot.)
 //
 //   node kit-bump.mjs check   --game <checkout> --root <root> --kit <game-kit clone>
 //                             --repo <owner/name> --result <file> [--check <command>] [--summary <file>]
 //   node kit-bump.mjs publish --game <checkout> --root <root> --kit <game-kit clone>
-//                             --kit-repo <owner/name> --repo <owner/name> --base <branch>
-//                             --merge <merge|squash|rebase> --result <file> [--summary <file>]
+//                             --kit-commit <hash> --kit-repo <owner/name> --repo <owner/name>
+//                             --base <branch> --merge <merge|squash|rebase> --result <file>
+//                             [--summary <file>]
 //
 // check, in a job whose token can only read:
 //   1. If the game has no pin, or its pin already names game-kit main, or a pin move
@@ -23,7 +27,9 @@
 //      start the repo's other workflows. Write the commit and whether it passed.
 //
 // publish, in a later job on a fresh runner, the only one that can write:
-//   4. Believe only a result commit on game-kit main. Repeat step 1.
+//   4. Believe the result's commit only if it is --kit-commit, which the workflow
+//      recorded before the check ran, is on game-kit main, and descends from the
+//      pin. Repeat step 1.
 //   5. Decide from every kit pull request merged since the pin: hold for the owner if
 //      any was pushed without a pull request, titled `BREAKING:`, or changed
 //      kit/screens.ts or kit/page.ts without the `additive` label.
@@ -46,7 +52,7 @@
 // line on stderr, no stack trace).
 
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -406,12 +412,21 @@ export function runCheckJob({ game, root, kit, repo, check = DEFAULT_CHECK, resu
  * The workflow's second job, the only one with a token that can write. It never runs the game's check
  * or installs anything: from a fresh checkout it makes the same pin move again with the game's own
  * sync tool, pushes that, and takes from `check` only whether the check passed. The commit `check`
- * tested is never pushed, so nothing the check ran can change what is merged.
+ * tested is never pushed, so nothing the check ran can change what is merged. The check wrote the
+ * result file, so it can always say it passed; that much is inherent. It cannot also choose the
+ * commit: `kitCommit` is what the workflow recorded before the check ran, and the result must name it.
  */
-export function runPublishJob({ game, root, kit, kitRepo, repo, base, merge, result, summary }) {
+export function runPublishJob({ game, root, kit, kitCommit, kitRepo, repo, base, merge, result, summary }) {
   checkMergeMethod(merge);
+  if (typeof kitCommit !== 'string' || !/^[0-9a-f]{40}$/.test(kitCommit)) {
+    throw new CannotTell(`--kit-commit must be a full commit hash, 40 hex characters, not "${kitCommit}"`);
+  }
   let checked;
   try {
+    // One regular file from the check job's artifact, and nothing else of it.
+    if (!lstatSync(result).isFile()) {
+      throw new Error('not a regular file');
+    }
     checked = JSON.parse(readFileSync(result, 'utf8'));
   } catch (error) {
     throw new CannotTell(`cannot read ${result}: ${error.message.split('\n')[0]}`);
@@ -420,9 +435,10 @@ export function runPublishJob({ game, root, kit, kitRepo, repo, base, merge, res
     report(summary, 'nothing to publish');
     return 0;
   }
-  // The result came from a job that ran untrusted install scripts: believe only a commit on game-kit main.
-  if (typeof checked.head !== 'string' || !/^[0-9a-f]{40}$/.test(checked.head)) {
-    throw new CannotTell(`${result}: "head" must be a full commit hash`);
+  // The result came from a job that ran untrusted install scripts: believe only the commit recorded
+  // before they ran, and only if it is on game-kit main.
+  if (checked.head !== kitCommit) {
+    throw new CannotTell(`${result} names ${checked.head}, not ${kitCommit}, the commit the workflow recorded before the check ran`);
   }
   if (spawnSync('git', ['-C', kit, 'merge-base', '--is-ancestor', checked.head, 'origin/main']).status !== 0) {
     throw new CannotTell(`${checked.head} is not on game-kit main, so it is not pinned`);
@@ -430,6 +446,10 @@ export function runPublishJob({ game, root, kit, kitRepo, repo, base, merge, res
   const move = pendingMove({ game, root, kit, repo, head: checked.head, summary });
   if (move === null) {
     return 0;
+  }
+  // A pin only moves forward: never to an older commit, whose changes since the pin would be none.
+  if (spawnSync('git', ['-C', kit, 'merge-base', '--is-ancestor', move.pinned, move.head]).status !== 0) {
+    throw new CannotTell(`${move.head} does not come after the pin, ${move.pinned}, on game-kit main, so the pin is not moved back to it`);
   }
   const changes = changesSince({ kit, kitRepo, pinned: move.pinned, head: move.head });
   const decision = combine(changes);
@@ -469,7 +489,7 @@ export function runOnce({ game, root, kit, kitRepo, repo, base, merge, check = D
 
 const USAGE = [
   'check --game <dir> --root <root> --kit <game-kit clone> --repo <owner/name> --result <file> [--check <command>] [--summary <file>]',
-  'publish --game <dir> --root <root> --kit <game-kit clone> --kit-repo <owner/name> --repo <owner/name> --base <branch> --merge <method> --result <file> [--summary <file>]',
+  'publish --game <dir> --root <root> --kit <game-kit clone> --kit-commit <hash> --kit-repo <owner/name> --repo <owner/name> --base <branch> --merge <method> --result <file> [--summary <file>]',
   'run (the older single job): --game --root --kit --kit-repo --repo --base --merge [--check] [--summary]',
 ].join(' | ');
 
@@ -499,9 +519,9 @@ function main(commandLine) {
       });
     case 'publish':
       return runPublishJob({
-        game: required('--game'), root: required('--root'), kit: required('--kit'), kitRepo: required('--kit-repo'),
-        repo: required('--repo'), base: required('--base'), merge: required('--merge'), result: required('--result'),
-        summary: optional('--summary'),
+        game: required('--game'), root: required('--root'), kit: required('--kit'), kitCommit: required('--kit-commit'),
+        kitRepo: required('--kit-repo'), repo: required('--repo'), base: required('--base'), merge: required('--merge'),
+        result: required('--result'), summary: optional('--summary'),
       });
     case 'run':
       return runOnce({

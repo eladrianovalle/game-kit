@@ -8,7 +8,9 @@
 # token is all it needs. Two jobs: `check` runs the game's check, with every
 # install script, holding a token that can only read; `publish`, on a fresh
 # runner, makes the same pin move again without running anything of the
-# game's but its sync tool, and is the only job that can write.
+# game's but its sync tool, and is the only job that can write. From `check`
+# it takes one file, unpacked into a folder of its own, and believes its
+# commit only if it is the one `check` recorded before the check ran.
 #
 # Copied from game-kit's templates/kit-bump.yml into
 # .github/workflows/kit-bump.yml: set the three values under `env`.
@@ -94,6 +96,9 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    env:
+      # Recorded by `check` before the game's check ran. The result file's commit must match it.
+      KIT_COMMIT: ${{ needs.check.outputs.kit }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -101,17 +106,17 @@ jobs:
           persist-credentials: false
 
       - name: Read game-kit at the commit the check used
-        env:
-          KIT_COMMIT: ${{ needs.check.outputs.kit }}
         run: |
           git clone --quiet https://github.com/eladrianovalle/game-kit.git "$RUNNER_TEMP/game-kit"
           git -C "$RUNNER_TEMP/game-kit" merge-base --is-ancestor "$KIT_COMMIT" origin/main
           git -C "$RUNNER_TEMP/game-kit" checkout --quiet --detach "$KIT_COMMIT"
 
+      # Into a folder of its own: the check job chose the artifact's contents, so it must not be
+      # unpacked over the clone above or anything else this job runs.
       - uses: actions/download-artifact@v4
         with:
           name: kit-bump-result
-          path: ${{ runner.temp }}
+          path: ${{ runner.temp }}/check-result
 
       - name: Push the pin move, open its pull request, and merge it or say why not
         env:
@@ -120,7 +125,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           node "$RUNNER_TEMP/game-kit/tools/kit-bump.mjs" publish \
-            --game . --root "$KIT_ROOT" --kit "$RUNNER_TEMP/game-kit" \
+            --game . --root "$KIT_ROOT" --kit "$RUNNER_TEMP/game-kit" --kit-commit "$KIT_COMMIT" \
             --kit-repo eladrianovalle/game-kit --repo "$GITHUB_REPOSITORY" \
             --base "$KIT_BRANCH" --merge "$KIT_MERGE" \
-            --result "$RUNNER_TEMP/kit-bump-result.json" --summary "$GITHUB_STEP_SUMMARY"
+            --result "$RUNNER_TEMP/check-result/kit-bump-result.json" --summary "$GITHUB_STEP_SUMMARY"

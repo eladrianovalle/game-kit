@@ -4,7 +4,7 @@
 // and logs every call. The game's workflow template is read as text.
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -430,16 +430,21 @@ describe('kit-bump run: one run in a game', () => {
   });
 });
 
-/** The workflow's two jobs: `check` in the game checkout, then `publish` in a fresh clone of its origin, as on a new runner. */
-function checkThenPublish(game: string, kit: Kit, env: Record<string, string>, check = 'true', head?: string) {
+/**
+ * The workflow's two jobs: `check` in the game checkout, then `publish` in a fresh clone of its origin, as on a
+ * new runner, told the commit the workflow recorded before the check (`kitCommit`, game-kit main unless said).
+ * `head` forges the result file's commit, as a check that wrote the file could.
+ */
+function checkThenPublish(game: string, kit: Kit, env: Record<string, string>, check = 'true', forged: { head?: string; kitCommit?: string } = {}) {
   const result = join(temporaryFolder(), 'result.json');
   const checked = runBot(env, 'check', '--game', game, '--root', '.', '--kit', kit.checkout, '--repo', GAME_REPO, '--result', result, '--check', check);
-  if (head !== undefined) {
-    writeFileSync(result, JSON.stringify({ ...JSON.parse(readFileSync(result, 'utf8')), head }));
+  if (forged.head !== undefined) {
+    writeFileSync(result, JSON.stringify({ ...JSON.parse(readFileSync(result, 'utf8')), head: forged.head }));
   }
   const fresh = temporaryFolder();
   execFileSync('git', ['clone', '-q', '--branch', 'main', git(game, 'remote', 'get-url', 'origin'), fresh]);
-  const published = runBot(env, 'publish', '--game', fresh, '--root', '.', '--kit', kit.checkout, '--kit-repo', KIT_REPO, '--repo', GAME_REPO, '--base', 'main', '--merge', 'squash', '--result', result);
+  const kitCommit = forged.kitCommit ?? git(kit.checkout, 'rev-parse', 'origin/main');
+  const published = runBot(env, 'publish', '--game', fresh, '--root', '.', '--kit', kit.checkout, '--kit-commit', kitCommit, '--kit-repo', KIT_REPO, '--repo', GAME_REPO, '--base', 'main', '--merge', 'squash', '--result', result);
   return { checked, published, fresh, result: JSON.parse(readFileSync(result, 'utf8')) as { head?: string; passed?: boolean } };
 }
 
@@ -500,11 +505,54 @@ describe('kit-bump check, then publish: the check never runs where a token can w
     const side = commitAll(kit.checkout, 'not on main', { 'kit/clock.ts': 'export const clock = 9;\n' });
     const game = buildGame(kit);
     const gh = fakeGh({ pulls: pulls(kit) });
-    const { published } = checkThenPublish(game, kit, gh.env, 'true', side);
+    const { published } = checkThenPublish(game, kit, gh.env, 'true', { head: side, kitCommit: side });
 
     expect(published).toEqual({ status: 2, output: expect.stringContaining('is not on game-kit main') });
     expect(git(game, 'ls-remote', '--heads', 'origin', 'kit/*')).toBe('');
     expect(named(gh.calls(), 'pr', 'create')).toHaveLength(0);
+  });
+
+  it('publish believes only the commit the workflow recorded before the check: a result naming another commit on main is refused', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    const gh = fakeGh({ pulls: pulls(kit) });
+    // The check forged the result to name an older commit, which is on main too.
+    const { published } = checkThenPublish(game, kit, gh.env, 'true', { head: kit.older, kitCommit: kit.head });
+
+    expect(published).toEqual({ status: 2, output: expect.stringContaining('the commit the workflow recorded before the check ran') });
+    expect(git(game, 'ls-remote', '--heads', 'origin', 'kit/*')).toBe('');
+    expect(named(gh.calls(), 'pr', 'create')).toHaveLength(0);
+  });
+
+  it('publish never moves the pin back: a commit the pin does not come before is refused, not merged as a change of nothing', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    // The game is on main's head; main then moves one commit on.
+    setPinCommit(game, kit.head);
+    git(game, 'commit', '-q', '-am', 'on the head');
+    git(game, 'push', '-q', 'origin', 'main');
+    const newer = commitAll(kit.checkout, 'a newer change', { 'kit/actions.ts': 'export const actions = 2;\n' });
+    git(kit.checkout, 'update-ref', 'refs/remotes/origin/main', newer);
+    const gh = fakeGh({ pulls: { [newer]: { number: 15, title: 'Actions: a change', files: ['kit/actions.ts'] } } });
+    const { published } = checkThenPublish(game, kit, gh.env, 'true', { head: kit.older, kitCommit: kit.older });
+
+    expect(published).toEqual({ status: 2, output: expect.stringContaining('does not come after the pin') });
+    expect(git(game, 'ls-remote', '--heads', 'origin', 'kit/*')).toBe('');
+    expect(named(gh.calls(), 'pr', 'create')).toHaveLength(0);
+    expect(named(gh.calls(), 'pr', 'merge')).toHaveLength(0);
+  });
+
+  it('publish reads the result only as a regular file: a link in its place is refused', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    const gh = fakeGh({ pulls: pulls(kit) });
+    const folder = temporaryFolder();
+    writeFileSync(join(folder, 'real.json'), JSON.stringify({ head: kit.head, passed: true, command: 'true', output: '' }));
+    symlinkSync(join(folder, 'real.json'), join(folder, 'result.json'));
+    const published = runBot(gh.env, 'publish', '--game', game, '--root', '.', '--kit', kit.checkout, '--kit-commit', kit.head, '--kit-repo', KIT_REPO, '--repo', GAME_REPO, '--base', 'main', '--merge', 'squash', '--result', join(folder, 'result.json'));
+
+    expect(published).toEqual({ status: 2, output: expect.stringContaining('not a regular file') });
+    expect(gh.calls()).toEqual([]);
   });
 
   it('with nothing to do, check records nothing and publish does nothing', () => {
@@ -581,9 +629,23 @@ describe('templates/kit-bump.yml: the workflow a game copies', () => {
     expect(template.match(/uses: actions\/checkout@v4\n\s+with:\n\s+ref: .*\n\s+persist-credentials: false/g)).toHaveLength(2);
   });
 
-  it('publish uses game-kit at the commit check used, and only one on main', () => {
+  it('publish uses game-kit at the commit check recorded before the check ran, only one on main, and tells the bot that commit', () => {
+    expect(template).toMatch(/^ {4}env:\n\s+#.*\n\s+KIT_COMMIT: \$\{\{ needs\.check\.outputs\.kit \}\}$/m);
     expect(template).toContain('merge-base --is-ancestor "$KIT_COMMIT" origin/main');
     expect(template).toContain('checkout --quiet --detach "$KIT_COMMIT"');
+    expect(template).toContain('--kit-commit "$KIT_COMMIT"');
+  });
+
+  it('publish unpacks the check\'s artifact into a folder of its own, not over its clone of game-kit, and reads one file from it', () => {
+    const [, , publishJob] = template.split(/^ {2}(?:check|publish):$/m);
+    const clone = /git clone --quiet \S+ "(\$RUNNER_TEMP\/[^"]+)"/.exec(publishJob)?.[1];
+    const download = /download-artifact@v4\n\s+with:\n\s+name: kit-bump-result\n\s+path: (.+)/.exec(publishJob)?.[1]?.replace('${{ runner.temp }}', '$RUNNER_TEMP');
+    expect(clone).toMatch(/^\$RUNNER_TEMP\/.+/);
+    expect(download).toMatch(/^\$RUNNER_TEMP\/.+/);
+    // Neither the clone's folder nor a parent of it: the check job chose the artifact's contents.
+    expect(download).not.toBe(clone);
+    expect(clone?.startsWith(`${download}/`)).toBe(false);
+    expect(publishJob).toContain(`--result "${download}/kit-bump-result.json"`);
   });
 
   it('runs kit-bump.mjs from the clone with the game\'s three values', () => {

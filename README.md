@@ -129,14 +129,21 @@ Write it for a reader who knows neither game.
 ## Changing the kit
 
 Each game runs `templates/kit-bump.yml` as its own workflow, every hour and on demand, with its own
-token. It clones this repo's `main`, runs `tools/kit-bump.mjs` from that clone, and:
+token. It clones this repo's `main` and runs `tools/kit-bump.mjs` from that clone, in two jobs, so
+the game's check never runs where the token can write. `check`, whose token can only read:
 
 1. does nothing if the pin already names `main`, or a pin move to it is already open;
 2. moves the pin on a branch `kit/<short hash>` and copies the files with the game's own sync tool;
 3. runs the game's own `npm run check` (in that run: a pull request opened with a repo's own token
-   does not start its other workflows);
-4. pushes the branch, replacing one it left earlier with no open pull request, opens a pull request
-   titled "Move the kit pin to game-kit <short hash>", and closes the game's older pin moves (branches
+   does not start its other workflows), and records whether it passed.
+
+`publish`, on a fresh runner, the only job that can write, runs nothing of the game's but its sync
+tool. It believes the check's result only for the kit commit the workflow recorded before the check
+ran, which must be on `main` and after the pin. Then it:
+
+4. makes the same pin move again, so the commit the check ran in is never pushed; pushes it,
+   replacing a branch it left earlier with no open pull request; opens a pull request titled "Move
+   the kit pin to game-kit <short hash>"; and closes the game's older pin moves (branches
    `kit/<short hash>`) as replaced, unless one holds someone's edits, which it comments on;
 5. merges it, or leaves it open with a comment, as below.
 
