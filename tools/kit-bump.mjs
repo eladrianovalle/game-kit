@@ -429,7 +429,7 @@ export function runPublishJob({ game, root, kit, kitCommit, kitRepo, repo, base,
       throw new Error('not a regular file');
     }
     checked = JSON.parse(readFileSync(result, 'utf8'));
-    if (checked === null || typeof checked !== 'object') {
+    if (checked === null || typeof checked !== 'object' || Array.isArray(checked)) {
       throw new Error('not a JSON object');
     }
   } catch (error) {

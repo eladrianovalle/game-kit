@@ -582,6 +582,18 @@ describe('kit-bump check, then publish: the check never runs where a token can w
     expect(gh.calls()).toEqual([]);
   });
 
+  it('publish refuses a result that is an array with the same line, not as a result naming no commit', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    const gh = fakeGh({ pulls: pulls(kit) });
+    const result = join(temporaryFolder(), 'result.json');
+    writeFileSync(result, '[]\n');
+    const published = runBot(gh.env, 'publish', '--game', game, '--root', '.', '--kit', kit.checkout, '--kit-commit', kit.head, '--kit-repo', KIT_REPO, '--repo', GAME_REPO, '--base', 'main', '--merge', 'squash', '--result', result);
+
+    expect(published).toEqual({ status: 2, output: expect.stringContaining(`cannot read ${result}: not a JSON object`) });
+    expect(gh.calls()).toEqual([]);
+  });
+
   it('publish reads the result only as a regular file: a link in its place is refused', () => {
     const kit = buildKit();
     const game = buildGame(kit);
