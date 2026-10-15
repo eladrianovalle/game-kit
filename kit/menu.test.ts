@@ -205,6 +205,42 @@ describe('menu focus: a control the player cannot use is skipped', () => {
     menu.next();
     expect(root.activeElement).toBe(third);
   });
+
+  it('skips a button under an inert element', () => {
+    const { document, root, screen, addButton, first, third, menu } = setUpThreeButtons();
+    const inertPanel = document.createElement('div');
+    inertPanel.setAttribute('inert', '');
+    screen.insertBefore(inertPanel, third);
+    addButton('Under inert', inertPanel);
+
+    first.focus();
+    menu.next();
+    menu.next();
+    expect(root.activeElement).toBe(third);
+  });
+
+  it('passes over a button that refuses focus, as one hidden by CSS does, forward and backward', () => {
+    const { root, first, second, third, menu } = setUpThreeButtons();
+    // A browser refuses focus to a control with `display: none` and says nothing; this does the same.
+    second.focus = () => undefined;
+
+    first.focus();
+    menu.next();
+    expect(root.activeElement).toBe(third);
+    menu.previous();
+    expect(root.activeElement).toBe(first);
+  });
+
+  it('leaves focus where it was when no control takes it', () => {
+    const { root, first, second, third, menu } = setUpThreeButtons();
+    first.focus();
+    second.focus = () => undefined;
+    third.focus = () => undefined;
+    first.focus = () => undefined;
+
+    menu.next();
+    expect(root.activeElement).toBe(first);
+  });
 });
 
 describe('menu focus: activate clicks the focused control', () => {

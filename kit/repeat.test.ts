@@ -43,4 +43,10 @@ describe('createRepeat', () => {
     expect(repeat.step(null)).toBeNull();
     expect(firedSteps(repeat, 'up', 8)).toEqual([0, 5, 7]);
   });
+
+  it('throws on a tuning number that could never work, naming it', () => {
+    expect(() => createRepeat<Direction>({ delaySteps: 5, intervalSteps: 0 })).toThrow(/intervalSteps/);
+    expect(() => createRepeat<Direction>({ delaySteps: 5, intervalSteps: 1.5 })).toThrow(/intervalSteps/);
+    expect(() => createRepeat<Direction>({ delaySteps: -1, intervalSteps: 2 })).toThrow(/delaySteps/);
+  });
 });

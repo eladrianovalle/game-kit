@@ -10,6 +10,13 @@ export function createRepeat<D extends string>(config: { delaySteps: number; int
   step(held: D | null): D | null;
 } {
   const { delaySteps, intervalSteps } = config;
+  // A bad tuning number would otherwise fail quietly: an interval of 0 never repeats.
+  if (!Number.isInteger(delaySteps) || delaySteps < 0) {
+    throw new RangeError(`createRepeat: delaySteps must be a whole number of at least 0, got ${delaySteps}`);
+  }
+  if (!Number.isInteger(intervalSteps) || intervalSteps < 1) {
+    throw new RangeError(`createRepeat: intervalSteps must be a whole number of at least 1, got ${intervalSteps}`);
+  }
   let current: D | null = null;
   let stepsSinceFirst = 0;
 
