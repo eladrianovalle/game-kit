@@ -4,36 +4,55 @@
 // The workflow clones game-kit's main and runs this file from the clone, so a
 // change to the bot reaches every game without touching the games.
 //
-//   node kit-bump.mjs run --game <game checkout> --root <root> --kit <game-kit clone>
-//                         --kit-repo <owner/name> --repo <owner/name> --base <branch>
-//                         --merge <merge|squash|rebase> [--check <shell command>] [--summary <file>]
+// The workflow runs it twice, in two jobs, so the game's check never runs where
+// the repo's token can write. (The check job's runner still holds the runtime
+// token that writes artifacts and the Actions cache. publish takes one file from
+// the artifact and restores no cache; a game's other workflows that restore a
+// cache saved on its base branch are outside this bot.)
 //
-// One run:
+//   node kit-bump.mjs check   --game <checkout> --root <root> --kit <game-kit clone>
+//                             --repo <owner/name> --result <file> [--check <command>] [--summary <file>]
+//   node kit-bump.mjs publish --game <checkout> --root <root> --kit <game-kit clone>
+//                             --kit-commit <hash> --kit-repo <owner/name> --repo <owner/name>
+//                             --base <branch> --merge <merge|squash|rebase> --result <file>
+//                             [--summary <file>]
+//
+// check, in a job whose token can only read:
 //   1. If the game has no pin, or its pin already names game-kit main, or a pin move
 //      to that commit is already open, stop: one line, exit 0.
-//   2. Decide from every kit pull request merged since the pin: hold for the owner if
+//   2. On a branch kit/<12-character short hash>: move the pin, run the game's own
+//      sync tool, commit only the pin and the files the sync wrote.
+//   3. Run the game's check (`npm ci && npm run check` in <root> unless --check). It
+//      runs here because a pull request opened with the repo's own token does not
+//      start the repo's other workflows. Write the commit and whether it passed.
+//
+// publish, in a later job on a fresh runner, the only one that can write:
+//   4. Believe the result's commit only if it is --kit-commit, which the workflow
+//      recorded before the check ran, is on game-kit main, and descends from the
+//      pin; refuse a result that names no commit while a move is due. Repeat step 1.
+//   5. Decide from every kit pull request merged since the pin: hold for the owner if
 //      any was pushed without a pull request, titled `BREAKING:`, or changed
 //      kit/screens.ts or kit/page.ts without the `additive` label.
-//   3. On a branch kit/<12-character short hash>: move the pin, run the game's own
-//      sync tool, commit only the pin and the files the sync wrote.
-//   4. Run the game's check (`npm ci && npm run check` in <root> unless --check),
-//      without GH_TOKEN or GITHUB_TOKEN in its environment. It runs here because a
-//      pull request opened with the repo's own token does not start the repo's other
-//      workflows.
-//   5. Push the branch, replacing a leftover kit/<short hash> branch that no open
-//      pull request holds, and open the pull request. Close older open
-//      kit/<short hash> pull requests that hold only the bot's commit; comment on
-//      any that hold more.
-//   6. Merge it with the game's method if the check passed and nothing is held.
+//   6. Make the same pin move again with the game's own sync tool. It runs no
+//      install script and no test, so nothing untrusted is alive while it holds
+//      the token, and the commit the check could have changed is never pushed.
+//   7. Push it, the token handed to git for github.com alone, replacing a leftover
+//      kit/<short hash> branch that no open pull request holds, and open the pull
+//      request. Close older open kit/<short hash> pull requests that hold only the
+//      bot's commit; comment on any that hold more.
+//   8. Merge it with the game's method if the check passed and nothing is held.
 //      Otherwise comment why and leave it open. A failed check or sync exits 1, so
 //      the run shows red.
+//
+// `run` does both in one process, for workflows copied before the two jobs. Its
+// check runs beside the token; it goes once every game has re-copied the template.
 //
 // `gh` reads its token from GH_TOKEN. Exit codes: 0 done, or nothing to do; 1 the
 // sync or the check failed; 2 this script cannot work with what it was given (one
 // line on stderr, no stack trace).
 
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -85,8 +104,39 @@ export function combine(changes) {
 // ---------------------------------------------------------------------------
 // git and gh.
 
+/**
+ * The environment for a git command that talks to the game's origin. The workflow checks the game out
+ * without keeping its token in .git/config; the token is handed to git here, for one command and for
+ * https://github.com alone, through a credential helper that reads it from the environment, so it
+ * never appears in a command line or a file. With no token (the tests' local origin) the environment
+ * is unchanged.
+ */
+export function originAuthEnv(env) {
+  const token = env.GH_TOKEN || env.GITHUB_TOKEN;
+  if (!token) {
+    return env;
+  }
+  return {
+    ...env,
+    KIT_BUMP_TOKEN: token,
+    // Asked for any other host, git finds no helper and fails rather than prompting.
+    GIT_TERMINAL_PROMPT: '0',
+    // Replaces any GIT_CONFIG_* pairs already in the environment; the template sets none.
+    GIT_CONFIG_COUNT: '2',
+    // An empty helper first drops any helper the runner set up, so only this one answers.
+    GIT_CONFIG_KEY_0: 'credential.helper',
+    GIT_CONFIG_VALUE_0: '',
+    GIT_CONFIG_KEY_1: 'credential.https://github.com.helper',
+    GIT_CONFIG_VALUE_1: '!f() { test "$1" = get && echo username=x-access-token && echo "password=$KIT_BUMP_TOKEN"; }; f',
+  };
+}
+
 function runGit(checkout, ...commandLine) {
-  const result = spawnSync('git', ['-C', checkout, ...commandLine], { encoding: 'utf8' });
+  return runGitWith(process.env, checkout, ...commandLine);
+}
+
+function runGitWith(env, checkout, ...commandLine) {
+  const result = spawnSync('git', ['-C', checkout, ...commandLine], { encoding: 'utf8', env });
   if (result.status !== 0) {
     throw new CannotTell(`git ${commandLine[0]} failed in ${checkout}: ${(result.stderr || result.stdout).trim().split('\n')[0]}`);
   }
@@ -233,7 +283,8 @@ export function pinMovePullRequest({ head, kitRepo, changes, decision, check }) 
 /** Closes older open pin moves that hold only the bot's commit, and comments on any that hold more. */
 function retireOlder({ repo, open, url }) {
   for (const older of open) {
-    if ((older.commits?.length ?? 1) > 1) {
+    const { commits } = ghJson('pr', 'view', older.url, '--repo', repo, '--json', 'commits');
+    if ((commits?.length ?? 1) > 1) {
       runGh('pr', 'comment', older.url, '--repo', repo, '--body', `${url} moves the pin to a newer game-kit commit. This pull request holds edits beyond the pin move, so it is left open: carry them onto ${url}, then close this one.`);
     } else {
       runGh('pr', 'close', older.url, '--repo', repo, '--comment', `Replaced by ${url}, which moves the pin to a newer game-kit commit. A pin holds every kit change before it.`);
@@ -256,15 +307,15 @@ function report(summary, line) {
   }
 }
 
-/** Runs the bot once in a game checkout. Returns the exit code. */
-export function runOnce({ game, root, kit, kitRepo, repo, base, merge, check = DEFAULT_CHECK, summary }) {
-  if (!MERGE_METHODS.includes(merge)) {
-    throw new CannotTell(`the merge method must be one of ${MERGE_METHODS.join(', ')}, not "${merge}"`);
-  }
+/**
+ * What every command first asks: does this game have a pin, is it behind `head`, and is no pin move to
+ * `head` already open? Returns null, after one line on the summary, when there is nothing to do.
+ */
+function pendingMove({ game, root, kit, repo, head, summary }) {
   const gameRoot = resolve(game, root);
   if (!existsSync(pinPath(gameRoot))) {
     report(summary, `${pinPath(gameRoot)} does not exist: this game has no kit pin yet, so there is nothing to move`);
-    return 0;
+    return null;
   }
   let pinned;
   try {
@@ -272,47 +323,49 @@ export function runOnce({ game, root, kit, kitRepo, repo, base, merge, check = D
   } catch (error) {
     throw new CannotTell(`cannot read ${pinPath(gameRoot)}: ${error.message.split('\n')[0]}`);
   }
-  const head = runGit(kit, 'rev-parse', 'origin/main').trim();
-  if (pinned === head) {
-    report(summary, `the pin already names game-kit main, ${head}`);
-    return 0;
+  const kitHead = head ?? runGit(kit, 'rev-parse', 'origin/main').trim();
+  if (pinned === kitHead) {
+    report(summary, `the pin already names game-kit main, ${kitHead}`);
+    return null;
   }
-  const branch = `kit/${head.slice(0, 12)}`;
-  const open = ghJson('pr', 'list', '--repo', repo, '--state', 'open', '--limit', '200', '--json', 'number,url,headRefName,commits').filter((pull) =>
+  const branch = `kit/${kitHead.slice(0, 12)}`;
+  // No `commits` here: asked of 200 pull requests, GitHub refuses the query as too large. retireOlder
+  // asks for them, one pin move at a time.
+  const open = ghJson('pr', 'list', '--repo', repo, '--state', 'open', '--limit', '200', '--json', 'number,url,headRefName').filter((pull) =>
     PIN_MOVE_BRANCH.test(pull.headRefName),
   );
   const already = open.find((pull) => pull.headRefName === branch);
   if (already !== undefined) {
-    report(summary, `a pin move to ${head} is already open, waiting on a person: ${already.url}`);
-    return 0;
+    report(summary, `a pin move to ${kitHead} is already open, waiting on a person: ${already.url}`);
+    return null;
   }
+  return { gameRoot, pinned, head: kitHead, branch, open };
+}
 
-  const changes = changesSince({ kit, kitRepo, pinned, head });
-  const decision = combine(changes);
-  if (!movePin({ game, root, commit: head, kit })) {
-    report(summary, `the game's sync tool failed for game-kit ${head}; nothing was committed or pushed`);
-    return 1;
-  }
-  // The check runs the game's tests and every dependency's install script: it gets no token in its
-  // environment. That is not isolation: actions/checkout keeps the repo token in the game's .git/config
-  // by default, and the check runs in that checkout, so it can still push.
+/** Runs the game's check with no token in its environment. */
+function runCheck(gameRoot, check) {
   const { GH_TOKEN: _ghToken, GITHUB_TOKEN: _githubToken, ...checkEnv } = process.env;
   const result = spawnSync('bash', ['-c', check], { cwd: gameRoot, encoding: 'utf8', env: checkEnv });
   process.stdout.write(result.stdout ?? '');
   process.stderr.write(result.stderr ?? '');
-  const checked = { command: check, passed: result.status === 0, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
+  return { command: check, passed: result.status === 0, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
+}
 
+/** Pushes the committed pin move, opens its pull request, retires older ones, and merges or says why not. */
+function publishMove({ game, kitRepo, repo, base, merge, move, changes, decision, checked, summary }) {
+  const { head, branch, open } = move;
   // A kit/<short> branch already on origin that no open pull request holds is this bot's own leftover:
   // a run that pushed and then failed to open its pull request, or a pin move closed unmerged. This
   // run's commit is new, so replace the branch, but only if it still holds the commit seen here.
-  const leftover = runGit(game, 'ls-remote', '--heads', 'origin', `refs/heads/${branch}`).split('\t')[0].trim();
-  runGit(game, 'push', '-q', ...(leftover ? [`--force-with-lease=refs/heads/${branch}:${leftover}`] : []), 'origin', branch);
+  const authed = originAuthEnv(process.env);
+  const leftover = runGitWith(authed, game, 'ls-remote', '--heads', 'origin', `refs/heads/${branch}`).split('\t')[0].trim();
+  runGitWith(authed, game, 'push', '-q', ...(leftover ? [`--force-with-lease=refs/heads/${branch}:${leftover}`] : []), 'origin', `${branch}:refs/heads/${branch}`);
   const { title, body } = pinMovePullRequest({ head, kitRepo, changes, decision, check: checked });
   const url = runGh('pr', 'create', '--repo', repo, '--base', base, '--head', branch, '--title', title, '--body', body).trim().split('\n').pop();
   retireOlder({ repo, open, url });
 
   if (!checked.passed) {
-    runGh('pr', 'comment', url, '--repo', repo, '--body', `Not merged: \`${check}\` failed with the new kit. It stays open for a person.\n\n\`\`\`\n${tail(checked.output)}\n\`\`\``);
+    runGh('pr', 'comment', url, '--repo', repo, '--body', `Not merged: \`${checked.command}\` failed with the new kit. It stays open for a person.\n\n\`\`\`\n${tail(checked.output)}\n\`\`\``);
     report(summary, `the check failed with game-kit ${head}; left ${url} open`);
     return 1;
   }
@@ -326,43 +379,167 @@ export function runOnce({ game, root, kit, kitRepo, repo, base, merge, check = D
   return 0;
 }
 
+function checkMergeMethod(merge) {
+  if (!MERGE_METHODS.includes(merge)) {
+    throw new CannotTell(`the merge method must be one of ${MERGE_METHODS.join(', ')}, not "${merge}"`);
+  }
+}
+
+/**
+ * The workflow's first job, which holds no token that can write. Moves the pin in this checkout, runs
+ * the game's check, and writes `{ head, passed, command, output }` to `result` for `publish`, or `{}`
+ * when there is nothing to do. Exits 0 even when the check fails, so `publish` opens the pull request
+ * that says so; 1 only when the sync fails.
+ */
+export function runCheckJob({ game, root, kit, repo, check = DEFAULT_CHECK, result, summary }) {
+  const move = pendingMove({ game, root, kit, repo, summary });
+  if (move === null) {
+    writeFileSync(result, '{}\n');
+    return 0;
+  }
+  if (!movePin({ game, root, commit: move.head, kit })) {
+    writeFileSync(result, '{}\n');
+    report(summary, `the game's sync tool failed for game-kit ${move.head}; nothing was committed or pushed`);
+    return 1;
+  }
+  const checked = runCheck(move.gameRoot, check);
+  writeFileSync(result, `${JSON.stringify({ head: move.head, passed: checked.passed, command: checked.command, output: tail(checked.output) })}\n`);
+  report(summary, `the check ${checked.passed ? 'passed' : 'failed'} with game-kit ${move.head}`);
+  return 0;
+}
+
+/**
+ * The workflow's second job, the only one with a token that can write. It never runs the game's check
+ * or installs anything: from a fresh checkout it makes the same pin move again with the game's own
+ * sync tool, pushes that, and takes from `check` only whether the check passed. The commit `check`
+ * tested is never pushed, so nothing the check ran can change what is merged. The check wrote the
+ * result file, so it can always say it passed or failed; that much is inherent. It cannot also choose
+ * the commit: `kitCommit` is what the workflow recorded before the check ran, and the result must name
+ * it. Nor can it hold a move back unseen: a result that names no commit is refused while a move is due.
+ */
+export function runPublishJob({ game, root, kit, kitCommit, kitRepo, repo, base, merge, result, summary }) {
+  checkMergeMethod(merge);
+  if (typeof kitCommit !== 'string' || !/^[0-9a-f]{40}$/.test(kitCommit)) {
+    throw new CannotTell(`--kit-commit must be a full commit hash, 40 hex characters, not "${kitCommit}"`);
+  }
+  let checked;
+  try {
+    // One regular file from the check job's artifact, and nothing else of it.
+    if (!lstatSync(result).isFile()) {
+      throw new Error('not a regular file');
+    }
+    checked = JSON.parse(readFileSync(result, 'utf8'));
+    if (checked === null || typeof checked !== 'object' || Array.isArray(checked)) {
+      throw new Error('not a JSON object');
+    }
+  } catch (error) {
+    throw new CannotTell(`cannot read ${result}: ${error.message.split('\n')[0]}`);
+  }
+  if (checked.head === undefined) {
+    // The check wrote this file, so `{}` alone could hold back every move: ask again, and refuse one that is due.
+    if (pendingMove({ game, root, kit, repo, head: kitCommit, summary }) !== null) {
+      throw new CannotTell(`${result} names no commit, but a pin move to ${kitCommit} is due, so the check did not say how it went`);
+    }
+    report(summary, 'nothing to publish');
+    return 0;
+  }
+  // The result came from a job that ran untrusted install scripts: believe only the commit recorded
+  // before they ran, and only if it is on game-kit main.
+  if (checked.head !== kitCommit) {
+    throw new CannotTell(`${result} names ${checked.head}, not ${kitCommit}, the commit the workflow recorded before the check ran`);
+  }
+  if (spawnSync('git', ['-C', kit, 'merge-base', '--is-ancestor', checked.head, 'origin/main']).status !== 0) {
+    throw new CannotTell(`${checked.head} is not on game-kit main, so it is not pinned`);
+  }
+  const move = pendingMove({ game, root, kit, repo, head: checked.head, summary });
+  if (move === null) {
+    return 0;
+  }
+  // A pin only moves forward: never to an older commit, whose changes since the pin would be none.
+  if (spawnSync('git', ['-C', kit, 'merge-base', '--is-ancestor', move.pinned, move.head]).status !== 0) {
+    throw new CannotTell(`${move.head} does not come after the pin, ${move.pinned}, on game-kit main, or the pin is not in game-kit, so the pin is not moved to it`);
+  }
+  const changes = changesSince({ kit, kitRepo, pinned: move.pinned, head: move.head });
+  const decision = combine(changes);
+  if (!movePin({ game, root, commit: move.head, kit })) {
+    report(summary, `the game's sync tool failed for game-kit ${move.head}; nothing was pushed`);
+    return 1;
+  }
+  return publishMove({
+    game, kitRepo, repo, base, merge, move, changes, decision, summary,
+    checked: { command: String(checked.command), passed: checked.passed === true, output: String(checked.output ?? '') },
+  });
+}
+
+/**
+ * The single-job run that workflows copied before the two-job template use: the check runs in the
+ * same job, and the same checkout, as the push. Kept so those keep working until they re-copy the
+ * template; the check there can reach the token.
+ */
+export function runOnce({ game, root, kit, kitRepo, repo, base, merge, check = DEFAULT_CHECK, summary }) {
+  checkMergeMethod(merge);
+  const move = pendingMove({ game, root, kit, repo, summary });
+  if (move === null) {
+    return 0;
+  }
+  const changes = changesSince({ kit, kitRepo, pinned: move.pinned, head: move.head });
+  const decision = combine(changes);
+  if (!movePin({ game, root, commit: move.head, kit })) {
+    report(summary, `the game's sync tool failed for game-kit ${move.head}; nothing was committed or pushed`);
+    return 1;
+  }
+  const checked = runCheck(move.gameRoot, check);
+  return publishMove({ game, kitRepo, repo, base, merge, move, changes, decision, checked, summary });
+}
+
 // ---------------------------------------------------------------------------
 // The command line.
 
-const USAGE =
-  'run --game <dir> --root <root> --kit <game-kit clone> --kit-repo <owner/name> --repo <owner/name> --base <branch> --merge <method> [--check <command>] [--summary <file>]';
+const USAGE = [
+  'check --game <dir> --root <root> --kit <game-kit clone> --repo <owner/name> --result <file> [--check <command>] [--summary <file>]',
+  'publish --game <dir> --root <root> --kit <game-kit clone> --kit-commit <hash> --kit-repo <owner/name> --repo <owner/name> --base <branch> --merge <method> --result <file> [--summary <file>]',
+  'run (the older single job): --game --root --kit --kit-repo --repo --base --merge [--check] [--summary]',
+].join(' | ');
 
 function option(commandLine, name, { required }) {
   const index = commandLine.indexOf(name);
   if (index === -1) {
     if (required) {
-      throw new CannotTell(`run needs ${name} <value>. Usage: node kit-bump.mjs ${USAGE}`);
+      throw new CannotTell(`${commandLine[0]} needs ${name} <value>. Usage: node kit-bump.mjs ${USAGE}`);
     }
     return undefined;
   }
   const value = commandLine[index + 1];
   if (value === undefined || value.startsWith('--')) {
-    throw new CannotTell(`run needs ${name} <value>. Usage: node kit-bump.mjs ${USAGE}`);
+    throw new CannotTell(`${commandLine[0]} needs ${name} <value>. Usage: node kit-bump.mjs ${USAGE}`);
   }
   return value;
 }
 
 function main(commandLine) {
-  if (commandLine[0] !== 'run') {
-    throw new CannotTell(`pass a command: ${USAGE}`);
-  }
   const required = (name) => option(commandLine, name, { required: true });
-  return runOnce({
-    game: required('--game'),
-    root: required('--root'),
-    kit: required('--kit'),
-    kitRepo: required('--kit-repo'),
-    repo: required('--repo'),
-    base: required('--base'),
-    merge: required('--merge'),
-    check: option(commandLine, '--check', { required: false }),
-    summary: option(commandLine, '--summary', { required: false }),
-  });
+  const optional = (name) => option(commandLine, name, { required: false });
+  switch (commandLine[0]) {
+    case 'check':
+      return runCheckJob({
+        game: required('--game'), root: required('--root'), kit: required('--kit'), repo: required('--repo'),
+        result: required('--result'), check: optional('--check'), summary: optional('--summary'),
+      });
+    case 'publish':
+      return runPublishJob({
+        game: required('--game'), root: required('--root'), kit: required('--kit'), kitCommit: required('--kit-commit'),
+        kitRepo: required('--kit-repo'), repo: required('--repo'), base: required('--base'), merge: required('--merge'),
+        result: required('--result'), summary: optional('--summary'),
+      });
+    case 'run':
+      return runOnce({
+        game: required('--game'), root: required('--root'), kit: required('--kit'), kitRepo: required('--kit-repo'),
+        repo: required('--repo'), base: required('--base'), merge: required('--merge'),
+        check: optional('--check'), summary: optional('--summary'),
+      });
+    default:
+      throw new CannotTell(`pass a command: ${USAGE}`);
+  }
 }
 
 // Run only as a command, not when a test imports the functions above.

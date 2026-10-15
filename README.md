@@ -66,8 +66,12 @@ to a newer commit on `main`, run step 3, run the game's `npm run check`, and pla
 `tools/sync-kit.mjs` was among the copied files, run the command once more, so the new tool has done
 the copy.
 
-A sync writes the files that exist at the pinned commit and deletes nothing. A file the kit has
-renamed or removed stays in the game until the game deletes it. A sync overwrites an uncommitted hand
+A sync writes the files that exist at the pinned commit. A file the last sync recorded that the kit
+has since renamed or removed is deleted, if it is unchanged; if it was edited by hand, the sync fails
+and writes nothing. Only a recorded path under one of the pin's `to` entries is ever deleted; a file
+the kit never copied is not touched. On the pin move that first brings this behaviour in, the game's
+old tool runs first and rewrites the hash list, so only files dropped by later kit commits are
+deleted. A sync overwrites an uncommitted hand
 edit to a copied file without warning.
 
 ## The sync tool
@@ -117,22 +121,29 @@ Write it for a reader who knows neither game.
    the change touches. If the change can be seen or felt, also what was watched in a real browser, and
    in which game.
 5. Every game: where it uses what changed, by file and quoted call, and what it must do to adopt, or
-   "nothing" with the reason. A renamed or removed kit file is named here, because each game must
-   delete its old copy by hand.
+   "nothing" with the reason. A renamed or removed kit file is named here: the sync deletes the old
+   copy, so name anything in a game that still imports it.
 6. Whether `CONTRACT.md` changes. If it does, the site is a party; link the site issue.
 7. The kit tests added or changed, named by the behaviour they hold.
 
 ## Changing the kit
 
 Each game runs `templates/kit-bump.yml` as its own workflow, every hour and on demand, with its own
-token. It clones this repo's `main`, runs `tools/kit-bump.mjs` from that clone, and:
+token. It clones this repo's `main` and runs `tools/kit-bump.mjs` from that clone, in two jobs, so
+the game's check never runs where the token can write. `check`, whose token can only read:
 
 1. does nothing if the pin already names `main`, or a pin move to it is already open;
 2. moves the pin on a branch `kit/<short hash>` and copies the files with the game's own sync tool;
 3. runs the game's own `npm run check` (in that run: a pull request opened with a repo's own token
-   does not start its other workflows);
-4. pushes the branch, replacing one it left earlier with no open pull request, opens a pull request
-   titled "Move the kit pin to game-kit <short hash>", and closes the game's older pin moves (branches
+   does not start its other workflows), and records whether it passed.
+
+`publish`, on a fresh runner, the only job that can write, runs nothing of the game's but its sync
+tool. It believes the check's result only for the kit commit the workflow recorded before the check
+ran, which must be on `main` and after the pin. Then it:
+
+4. makes the same pin move again, so the commit the check ran in is never pushed; pushes it,
+   replacing a branch it left earlier with no open pull request; opens a pull request titled "Move
+   the kit pin to game-kit <short hash>"; and closes the game's older pin moves (branches
    `kit/<short hash>`) as replaced, unless one holds someone's edits, which it comments on;
 5. merges it, or leaves it open with a comment, as below.
 
