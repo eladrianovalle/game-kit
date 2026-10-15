@@ -433,11 +433,14 @@ describe('kit-bump run: one run in a game', () => {
 /**
  * The workflow's two jobs: `check` in the game checkout, then `publish` in a fresh clone of its origin, as on a
  * new runner, told the commit the workflow recorded before the check (`kitCommit`, game-kit main unless said).
- * `head` forges the result file's commit, as a check that wrote the file could.
+ * `head` forges the result file's commit, and `empty` the whole file as `{}`, as a check that wrote the file could.
  */
-function checkThenPublish(game: string, kit: Kit, env: Record<string, string>, check = 'true', forged: { head?: string; kitCommit?: string } = {}) {
+function checkThenPublish(game: string, kit: Kit, env: Record<string, string>, check = 'true', forged: { head?: string; kitCommit?: string; empty?: boolean } = {}) {
   const result = join(temporaryFolder(), 'result.json');
   const checked = runBot(env, 'check', '--game', game, '--root', '.', '--kit', kit.checkout, '--repo', GAME_REPO, '--result', result, '--check', check);
+  if (forged.empty === true) {
+    writeFileSync(result, '{}\n');
+  }
   if (forged.head !== undefined) {
     writeFileSync(result, JSON.stringify({ ...JSON.parse(readFileSync(result, 'utf8')), head: forged.head }));
   }
@@ -540,6 +543,17 @@ describe('kit-bump check, then publish: the check never runs where a token can w
     expect(git(game, 'ls-remote', '--heads', 'origin', 'kit/*')).toBe('');
     expect(named(gh.calls(), 'pr', 'create')).toHaveLength(0);
     expect(named(gh.calls(), 'pr', 'merge')).toHaveLength(0);
+  });
+
+  it('publish refuses a result that names no commit while a pin move is due: the check cannot hold every move back unseen', () => {
+    const kit = buildKit();
+    const game = buildGame(kit);
+    const gh = fakeGh({ pulls: pulls(kit) });
+    const { published } = checkThenPublish(game, kit, gh.env, 'true', { empty: true });
+
+    expect(published).toEqual({ status: 2, output: expect.stringContaining(`names no commit, but a pin move to ${kit.head} is due`) });
+    expect(git(game, 'ls-remote', '--heads', 'origin', 'kit/*')).toBe('');
+    expect(named(gh.calls(), 'pr', 'create')).toHaveLength(0);
   });
 
   it('publish reads the result only as a regular file: a link in its place is refused', () => {

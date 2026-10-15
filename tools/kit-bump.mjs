@@ -29,7 +29,7 @@
 // publish, in a later job on a fresh runner, the only one that can write:
 //   4. Believe the result's commit only if it is --kit-commit, which the workflow
 //      recorded before the check ran, is on game-kit main, and descends from the
-//      pin. Repeat step 1.
+//      pin; refuse a result that names no commit while a move is due. Repeat step 1.
 //   5. Decide from every kit pull request merged since the pin: hold for the owner if
 //      any was pushed without a pull request, titled `BREAKING:`, or changed
 //      kit/screens.ts or kit/page.ts without the `additive` label.
@@ -432,6 +432,10 @@ export function runPublishJob({ game, root, kit, kitCommit, kitRepo, repo, base,
     throw new CannotTell(`cannot read ${result}: ${error.message.split('\n')[0]}`);
   }
   if (checked.head === undefined) {
+    // The check wrote this file, so `{}` alone could hold back every move: ask again, and refuse one that is due.
+    if (pendingMove({ game, root, kit, repo, head: kitCommit, summary }) !== null) {
+      throw new CannotTell(`${result} names no commit, but a pin move to ${kitCommit} is due, so the check did not say how it went`);
+    }
     report(summary, 'nothing to publish');
     return 0;
   }
@@ -449,7 +453,7 @@ export function runPublishJob({ game, root, kit, kitCommit, kitRepo, repo, base,
   }
   // A pin only moves forward: never to an older commit, whose changes since the pin would be none.
   if (spawnSync('git', ['-C', kit, 'merge-base', '--is-ancestor', move.pinned, move.head]).status !== 0) {
-    throw new CannotTell(`${move.head} does not come after the pin, ${move.pinned}, on game-kit main, so the pin is not moved back to it`);
+    throw new CannotTell(`${move.head} does not come after the pin, ${move.pinned}, on game-kit main, or the pin is not in game-kit, so the pin is not moved to it`);
   }
   const changes = changesSince({ kit, kitRepo, pinned: move.pinned, head: move.head });
   const decision = combine(changes);
