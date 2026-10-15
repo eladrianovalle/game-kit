@@ -221,15 +221,32 @@ describe('sync-kit.mjs --from <checkout>: a file the kit no longer has', () => {
     expect(snapshot(game)).toEqual(before);
   });
 
-  it('fails, names it and writes nothing when it was edited by hand', () => {
-    const { checkout, game } = setUpRemoval();
+  it('fails, says to delete or move it, and writes nothing when it was edited by hand', () => {
+    const { checkout, after, game } = setUpRemoval();
     writeFiles(game, { 'kit/old.ts': 'edited by hand\n' });
     const before = snapshot(game);
     const result = run(game, '--from', checkout);
 
     expect(result.status).toBe(1);
-    expect(result.output).toContain('  kit/old.ts');
+    expect(result.output).toContain(`sync-kit.mjs: FAILED: ${after} no longer has kit/old.ts, and the sync will not delete a file edited by hand.`);
+    expect(result.output).toContain('To discard it, delete or move it, then run:');
+    // Running the sync again would fail the same way, so the tool must not say it restores anything.
+    expect(result.output).not.toContain('restore the pinned files');
     expect(snapshot(game)).toEqual(before);
+  });
+
+  it('deletes only what the kit put there: a game file beside it, and a recorded path outside every copy, stay', () => {
+    const { checkout, game } = setUpRemoval();
+    writeFiles(game, { 'kit/game-only.ts': 'the game wrote this\n', 'src/main.ts': 'the game\'s own\n' });
+    const pin = readPin(game);
+    // A pin whose hashes name a file outside kit/, with its true hash: a sync must still not delete it.
+    const sha256 = { ...pin.sha256, 'src/main.ts': createHash('sha256').update("the game's own\n").digest('hex') };
+    writeFiles(game, { 'kit/KIT_SOURCE.json': `${JSON.stringify({ ...pin, sha256 }, null, 2)}\n` });
+
+    expect(run(game, '--from', checkout).status).toBe(0);
+    expect(existsSync(join(game, 'kit/old.ts'))).toBe(false);
+    expect(readFileSync(join(game, 'kit/game-only.ts'), 'utf8')).toBe('the game wrote this\n');
+    expect(readFileSync(join(game, 'src/main.ts'), 'utf8')).toBe("the game's own\n");
   });
 });
 

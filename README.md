@@ -68,7 +68,10 @@ the copy.
 
 A sync writes the files that exist at the pinned commit. A file the last sync recorded that the kit
 has since renamed or removed is deleted, if it is unchanged; if it was edited by hand, the sync fails
-and writes nothing. A file the kit never copied is not touched. A sync overwrites an uncommitted hand
+and writes nothing. Only a recorded path under one of the pin's `to` entries is ever deleted; a file
+the kit never copied is not touched. On the pin move that first brings this behaviour in, the game's
+old tool runs first and rewrites the hash list, so only files dropped by later kit commits are
+deleted. A sync overwrites an uncommitted hand
 edit to a copied file without warning.
 
 ## The sync tool

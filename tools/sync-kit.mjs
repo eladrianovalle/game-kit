@@ -14,8 +14,9 @@
 //
 // A file the last sync recorded that the pinned commit no longer has (the kit
 // deleted or renamed it) is deleted by a sync, if it still has its recorded
-// hash, and counts as a difference for --from --check. One edited by hand is
-// left alone and fails the sync, before anything is written.
+// hash and sits under one of the pin's `to` paths, and counts as a difference
+// for --from --check. One edited by hand is left alone and fails the sync,
+// before anything is written. Nothing else is ever deleted.
 //
 // With --from, the tool also asks whether the pinned commit is on origin/main
 // of that checkout, as last fetched. That is evidence for whoever merges, not a
@@ -122,16 +123,28 @@ function syncFromCheckout({ root, checkout, check }) {
   const hashes = {};
   let copied = 0;
 
-  // Files the last sync recorded that this commit no longer copies, and that are still there.
+  // Files the last sync recorded that this commit no longer copies, and that are still there. Only a
+  // path under one of the pin's `to` entries, with no `..`, can be one: a sync deletes nothing else.
   const wantedPaths = new Set(files.map(([, destination]) => destination));
   const recorded = pin.sha256 !== null && typeof pin.sha256 === 'object' ? pin.sha256 : {};
-  const stale = Object.entries(recorded).filter(([file]) => !wantedPaths.has(file) && existsSync(join(root, file)));
-  const editedStale = stale.filter(([file, hash]) => sha256(readFileSync(join(root, file))) !== hash);
-  if (check || editedStale.length > 0) {
-    differences.push(...(check ? stale : editedStale).map(([file]) => file));
-  }
-  if (!check && editedStale.length > 0) {
-    return { commit: pin.commit, copied, differences, onMain };
+  const isUnderACopy = (file) =>
+    !file.split('/').includes('..') && pin.copies.some((copy) => file === copy.to || file.startsWith(`${copy.to}/`));
+  const stale = Object.entries(recorded).filter(
+    ([file]) => isUnderACopy(file) && !wantedPaths.has(file) && existsSync(join(root, file)),
+  );
+  const editedStale = stale.filter(([file, hash]) => sha256(readFileSync(join(root, file))) !== hash).map(([file]) => file);
+  if (check) {
+    differences.push(...stale.map(([file]) => file));
+  } else if (editedStale.length > 0) {
+    return { commit: pin.commit, copied, differences, editedStale, onMain };
+  } else {
+    // Deleted before anything is written. A rename that changes only case names the same file on macOS
+    // and Windows, so deleting after the write would delete the new copy; and a kit file replaced by a
+    // folder of the same name could not be written while the file is there. CI on Linux cannot show
+    // the first.
+    for (const [file] of stale) {
+      rmSync(join(root, file));
+    }
   }
   for (const [source, destination] of files) {
     const wanted = gitShow(checkout, pin.commit, source);
@@ -150,12 +163,9 @@ function syncFromCheckout({ root, checkout, check }) {
     copied += 1;
   }
   if (!check) {
-    for (const [file] of stale) {
-      rmSync(join(root, file));
-    }
     writeFileSync(join(root, PIN_FILE), `${JSON.stringify({ ...pin, sha256: hashes }, null, 2)}\n`);
   }
-  return { commit: pin.commit, copied, removed: check ? 0 : stale.length, differences, onMain };
+  return { commit: pin.commit, copied, removed: check ? 0 : stale.length, differences, editedStale: [], onMain };
 }
 
 /** The vendored files that are missing or no longer have the hash recorded when they were last synced. */
@@ -171,7 +181,7 @@ function checkAgainstRecordedHashes({ root }) {
       differences.push(file);
     }
   }
-  return { commit: pin.commit, copied: 0, differences, onMain: true };
+  return { commit: pin.commit, copied: 0, differences, editedStale: [], onMain: true };
 }
 
 function main() {
@@ -183,6 +193,12 @@ function main() {
   }
   const result = checkout === null ? checkAgainstRecordedHashes({ root }) : syncFromCheckout({ root, checkout, check });
 
+  for (const file of result.editedStale) {
+    console.error(
+      `sync-kit.mjs: FAILED: ${result.commit} no longer has ${file}, and the sync will not delete a file edited by hand. ` +
+        `If the edit is wanted, it belongs in game-kit (flow (c) in the game-kit README). To discard it, delete or move it, then run: ${SYNC_COMMAND}`,
+    );
+  }
   if (result.differences.length > 0) {
     const comparedWith = checkout === null ? `the hashes recorded for ${result.commit}` : result.commit;
     console.error(`sync-kit.mjs: FAILED: these files differ from ${comparedWith}:`);
@@ -199,7 +215,7 @@ function main() {
         'Fetch that checkout and try again; if it still fails, the kit change has not merged.',
     );
   }
-  if (result.differences.length > 0 || (check && !result.onMain)) {
+  if (result.differences.length > 0 || result.editedStale.length > 0 || (check && !result.onMain)) {
     return 1;
   }
   const removed = result.removed > 0 ? `, and removed ${result.removed} the kit no longer has` : '';
