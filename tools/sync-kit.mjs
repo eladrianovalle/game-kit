@@ -12,6 +12,11 @@
 // A game's `npm run check` runs the last form, which needs no other checkout
 // and so runs in CI too.
 //
+// A file the last sync recorded that the pinned commit no longer has (the kit
+// deleted or renamed it) is deleted by a sync, if it still has its recorded
+// hash, and counts as a difference for --from --check. One edited by hand is
+// left alone and fails the sync, before anything is written.
+//
 // With --from, the tool also asks whether the pinned commit is on origin/main
 // of that checkout, as last fetched. That is evidence for whoever merges, not a
 // gate: a plain --from still copies and only adds a note.
@@ -28,7 +33,7 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -116,6 +121,18 @@ function syncFromCheckout({ root, checkout, check }) {
   const differences = [];
   const hashes = {};
   let copied = 0;
+
+  // Files the last sync recorded that this commit no longer copies, and that are still there.
+  const wantedPaths = new Set(files.map(([, destination]) => destination));
+  const recorded = pin.sha256 !== null && typeof pin.sha256 === 'object' ? pin.sha256 : {};
+  const stale = Object.entries(recorded).filter(([file]) => !wantedPaths.has(file) && existsSync(join(root, file)));
+  const editedStale = stale.filter(([file, hash]) => sha256(readFileSync(join(root, file))) !== hash);
+  if (check || editedStale.length > 0) {
+    differences.push(...(check ? stale : editedStale).map(([file]) => file));
+  }
+  if (!check && editedStale.length > 0) {
+    return { commit: pin.commit, copied, differences, onMain };
+  }
   for (const [source, destination] of files) {
     const wanted = gitShow(checkout, pin.commit, source);
     hashes[destination] = sha256(wanted);
@@ -133,9 +150,12 @@ function syncFromCheckout({ root, checkout, check }) {
     copied += 1;
   }
   if (!check) {
+    for (const [file] of stale) {
+      rmSync(join(root, file));
+    }
     writeFileSync(join(root, PIN_FILE), `${JSON.stringify({ ...pin, sha256: hashes }, null, 2)}\n`);
   }
-  return { commit: pin.commit, copied, differences, onMain };
+  return { commit: pin.commit, copied, removed: check ? 0 : stale.length, differences, onMain };
 }
 
 /** The vendored files that are missing or no longer have the hash recorded when they were last synced. */
@@ -182,7 +202,8 @@ function main() {
   if (result.differences.length > 0 || (check && !result.onMain)) {
     return 1;
   }
-  console.log(check ? `sync-kit.mjs: the vendored kit files match ${result.commit}` : `sync-kit.mjs: copied ${result.copied} file(s) from ${result.commit}`);
+  const removed = result.removed > 0 ? `, and removed ${result.removed} the kit no longer has` : '';
+  console.log(check ? `sync-kit.mjs: the vendored kit files match ${result.commit}` : `sync-kit.mjs: copied ${result.copied} file(s) from ${result.commit}${removed}`);
   if (!result.onMain) {
     console.log(`sync-kit.mjs: note: ${result.commit} is not on origin/main of ${checkout}`);
   }

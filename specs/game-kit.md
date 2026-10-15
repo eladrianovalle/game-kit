@@ -310,7 +310,7 @@ The game's repo must allow workflows to open pull requests (Settings, Actions, G
 | A game's base branch requires status checks | They never run on the bot's pull request, which the repo's own token opened, so `gh pr merge` fails and the run shows red. The next run finds the pin move open and stops quietly; it waits for a person to merge it. |
 | A change to the bot breaks it | Every game runs the new bot on its next run, from `main`. Its test runs here first, in `npm run check`; a broken run shows red in every game, and fixing `main` fixes every game. |
 | The two games need incompatible behaviour | First an option whose default keeps the old behaviour. If that cannot be done, the owner decides. A game leaving the kit is his call, never an agent's. |
-| A kit file is renamed or removed | The old copy lingers in each game. The kit pull request says so under item 5 and each game deletes it on adopting. Not automated. |
+| A kit file is renamed or removed | The sync deletes the old copy if it still has its recorded hash, and fails if it was edited by hand (added after into-the-dark-web#16's review: with the bot merging pin moves, a lingering copy would drop out of the hash check unseen). The kit pull request names it under item 5. |
 | A later file in `game-kit`'s `testing/` has the same name as a game's own file there | The sync overwrites the game's file without warning; git shows it in the diff. No guard. |
 | Cemetery Security edits `web/kit` between the import and its adoption | Step 3 of its hand-off lists the files; the resolution is written there. |
 

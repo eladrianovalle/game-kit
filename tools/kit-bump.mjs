@@ -20,7 +20,7 @@
 //      without GH_TOKEN or GITHUB_TOKEN in its environment. It runs here because a
 //      pull request opened with the repo's own token does not start the repo's other
 //      workflows.
-//   5. Push the branch, replacing a leftover kit/<short hash> branch that no open
+//   5. Push the branch with the token handed to git for that push alone, replacing a leftover kit/<short hash> branch that no open
 //      pull request holds, and open the pull request. Close older open
 //      kit/<short hash> pull requests that hold only the bot's commit; comment on
 //      any that hold more.
@@ -85,8 +85,35 @@ export function combine(changes) {
 // ---------------------------------------------------------------------------
 // git and gh.
 
+/**
+ * The environment for a git command that talks to the game's origin. The workflow checks the game out
+ * without keeping its token, so the check never runs with push rights; the token is handed to git here,
+ * for one command, through a credential helper that reads it from the environment, so it never appears
+ * in a command line or a file. With no token (the tests' local origin) the environment is unchanged.
+ */
+export function originAuthEnv(env) {
+  const token = env.GH_TOKEN || env.GITHUB_TOKEN;
+  if (!token) {
+    return env;
+  }
+  return {
+    ...env,
+    KIT_BUMP_TOKEN: token,
+    GIT_CONFIG_COUNT: '2',
+    // An empty helper first drops any helper the runner set up, so only this one answers.
+    GIT_CONFIG_KEY_0: 'credential.helper',
+    GIT_CONFIG_VALUE_0: '',
+    GIT_CONFIG_KEY_1: 'credential.helper',
+    GIT_CONFIG_VALUE_1: '!f() { test "$1" = get && echo username=x-access-token && echo "password=$KIT_BUMP_TOKEN"; }; f',
+  };
+}
+
 function runGit(checkout, ...commandLine) {
-  const result = spawnSync('git', ['-C', checkout, ...commandLine], { encoding: 'utf8' });
+  return runGitWith(process.env, checkout, ...commandLine);
+}
+
+function runGitWith(env, checkout, ...commandLine) {
+  const result = spawnSync('git', ['-C', checkout, ...commandLine], { encoding: 'utf8', env });
   if (result.status !== 0) {
     throw new CannotTell(`git ${commandLine[0]} failed in ${checkout}: ${(result.stderr || result.stdout).trim().split('\n')[0]}`);
   }
@@ -294,8 +321,8 @@ export function runOnce({ game, root, kit, kitRepo, repo, base, merge, check = D
     return 1;
   }
   // The check runs the game's tests and every dependency's install script: it gets no token in its
-  // environment. That is not isolation: actions/checkout keeps the repo token in the game's .git/config
-  // by default, and the check runs in that checkout, so it can still push.
+  // environment, and the workflow's checkout keeps none in .git/config (`persist-credentials: false`).
+  // A game still on an older copy of the workflow keeps one there, and its check can push.
   const { GH_TOKEN: _ghToken, GITHUB_TOKEN: _githubToken, ...checkEnv } = process.env;
   const result = spawnSync('bash', ['-c', check], { cwd: gameRoot, encoding: 'utf8', env: checkEnv });
   process.stdout.write(result.stdout ?? '');
@@ -305,8 +332,9 @@ export function runOnce({ game, root, kit, kitRepo, repo, base, merge, check = D
   // A kit/<short> branch already on origin that no open pull request holds is this bot's own leftover:
   // a run that pushed and then failed to open its pull request, or a pin move closed unmerged. This
   // run's commit is new, so replace the branch, but only if it still holds the commit seen here.
-  const leftover = runGit(game, 'ls-remote', '--heads', 'origin', `refs/heads/${branch}`).split('\t')[0].trim();
-  runGit(game, 'push', '-q', ...(leftover ? [`--force-with-lease=refs/heads/${branch}:${leftover}`] : []), 'origin', branch);
+  const authed = originAuthEnv(process.env);
+  const leftover = runGitWith(authed, game, 'ls-remote', '--heads', 'origin', `refs/heads/${branch}`).split('\t')[0].trim();
+  runGitWith(authed, game, 'push', '-q', ...(leftover ? [`--force-with-lease=refs/heads/${branch}:${leftover}`] : []), 'origin', branch);
   const { title, body } = pinMovePullRequest({ head, kitRepo, changes, decision, check: checked });
   const url = runGh('pr', 'create', '--repo', repo, '--base', base, '--head', branch, '--title', title, '--body', body).trim().split('\n').pop();
   retireOlder({ repo, open, url });

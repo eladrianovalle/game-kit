@@ -183,6 +183,56 @@ describe('sync-kit.mjs --from <checkout>: copy the pinned commit in', () => {
   });
 });
 
+describe('sync-kit.mjs --from <checkout>: a file the kit no longer has', () => {
+  // A source whose second commit deletes kit/old.ts, and a game synced at its first.
+  function setUpRemoval(): { checkout: string; before: string; after: string; game: string } {
+    const checkout = temporaryFolder();
+    git(checkout, 'init', '-q');
+    const before = commitAll(checkout, 'before', { 'kit/keep.ts': 'keep\n', 'kit/old.ts': 'old\n' });
+    git(checkout, 'rm', '-q', 'kit/old.ts');
+    git(checkout, 'commit', '-q', '-m', 'after');
+    const after = git(checkout, 'rev-parse', 'HEAD');
+    git(checkout, 'update-ref', 'refs/remotes/origin/main', after);
+    const game = gameWithPin(before, [{ from: 'kit', to: 'kit' }]);
+    expect(run(game, '--from', checkout).status).toBe(0);
+    const pin = readPin(game);
+    writeFiles(game, { 'kit/KIT_SOURCE.json': `${JSON.stringify({ ...pin, commit: after }, null, 2)}\n` });
+    return { checkout, before, after, game };
+  }
+
+  it('deletes it when it still has its recorded hash, says so, and stops recording it', () => {
+    const { checkout, after, game } = setUpRemoval();
+    const result = run(game, '--from', checkout);
+
+    expect(result.status).toBe(0);
+    expect(result.output).toContain(`copied 0 file(s) from ${after}, and removed 1 the kit no longer has`);
+    expect(existsSync(join(game, 'kit/old.ts'))).toBe(false);
+    expect(Object.keys(readPin(game).sha256 ?? {})).toEqual(['kit/keep.ts']);
+    expect(run(game, '--check').status).toBe(0);
+  });
+
+  it('with --check, names it as a difference and deletes nothing', () => {
+    const { checkout, game } = setUpRemoval();
+    const before = snapshot(game);
+    const result = run(game, '--from', checkout, '--check');
+
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('  kit/old.ts');
+    expect(snapshot(game)).toEqual(before);
+  });
+
+  it('fails, names it and writes nothing when it was edited by hand', () => {
+    const { checkout, game } = setUpRemoval();
+    writeFiles(game, { 'kit/old.ts': 'edited by hand\n' });
+    const before = snapshot(game);
+    const result = run(game, '--from', checkout);
+
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('  kit/old.ts');
+    expect(snapshot(game)).toEqual(before);
+  });
+});
+
 describe('sync-kit.mjs --check: compare with the recorded hashes, no other checkout needed', () => {
   it('passes on an untouched copy', () => {
     const game = syncedGame(source.second);

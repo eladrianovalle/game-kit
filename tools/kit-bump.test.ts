@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { combine, decide, setPinCommit } from './kit-bump.mjs';
+import { combine, decide, originAuthEnv, setPinCommit } from './kit-bump.mjs';
 
 const TOOLS_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPO_DIRECTORY = join(TOOLS_DIRECTORY, '..');
@@ -422,6 +422,26 @@ describe('kit-bump run: one run in a game', () => {
   });
 });
 
+describe('originAuthEnv: the token reaches git for the push alone', () => {
+  it('gives git the token through a credential helper, never in a config value or argument', () => {
+    const env = originAuthEnv({ PATH: process.env.PATH, GH_TOKEN: 'token-for-the-test' });
+    for (const [name, value] of Object.entries(env)) {
+      if (name.startsWith('GIT_CONFIG_')) {
+        expect(value).not.toContain('token-for-the-test');
+      }
+    }
+    const answer = execFileSync('git', ['credential', 'fill'], { input: 'protocol=https\nhost=github.com\n\n', env, encoding: 'utf8' });
+    expect(answer).toContain('username=x-access-token');
+    expect(answer).toContain('password=token-for-the-test');
+  });
+
+  it('falls back to GITHUB_TOKEN, and leaves the environment alone with no token', () => {
+    expect(originAuthEnv({ GITHUB_TOKEN: 'other' }).KIT_BUMP_TOKEN).toBe('other');
+    const bare = { PATH: '/bin' };
+    expect(originAuthEnv(bare)).toBe(bare);
+  });
+});
+
 describe('templates/kit-bump.yml: the workflow a game copies', () => {
   const template = readFileSync(TEMPLATE_FILE, 'utf8');
 
@@ -436,6 +456,10 @@ describe('templates/kit-bump.yml: the workflow a game copies', () => {
     expect(template).toContain('GH_TOKEN: ${{ github.token }}');
     expect(template).toMatch(/permissions:\n\s+contents: write\n\s+pull-requests: write/);
     expect(template).toContain('git clone --quiet https://github.com/eladrianovalle/game-kit.git');
+  });
+
+  it('keeps no token in the game checkout, where the check and its install scripts run', () => {
+    expect(template).toMatch(/uses: actions\/checkout@v4\n\s+with:\n(\s+.*\n)*?\s+persist-credentials: false/);
   });
 
   it('runs kit-bump.mjs from the clone with the game\'s three values', () => {
