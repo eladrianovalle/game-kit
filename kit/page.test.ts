@@ -355,8 +355,8 @@ describe('unlockSoundOnFirstGesture', () => {
     expect(unlockedWith).toHaveLength(1);
   });
 
-  it('a pointer going down or coming up on the game is a first gesture too', () => {
-    for (const type of ['pointerdown', 'pointerup']) {
+  it('a pointer going down or coming up, a finger lifting, or a click on the game is a first gesture too', () => {
+    for (const type of ['pointerdown', 'pointerup', 'touchend', 'click']) {
       const { pointerTarget, contexts } = setUp();
       pointerTarget.dispatch(type);
       expect(contexts).toHaveLength(1);
@@ -374,15 +374,18 @@ describe('unlockSoundOnFirstGesture', () => {
     expect(contexts).toHaveLength(1);
   });
 
+  // Safari on an iPhone refuses a resume on a finger going down, and allows it as the finger lifts.
   it('asks a context the browser would not start to resume again on each later gesture, and makes no second one', async () => {
     const { keyTarget, pointerTarget, contexts, unlockedWith } = setUp({ resumes: false });
     pointerTarget.dispatch('pointerdown');
     pointerTarget.dispatch('pointerup');
+    pointerTarget.dispatch('touchend');
+    pointerTarget.dispatch('click');
     keyTarget.dispatch('keydown');
     // The refusals are swallowed: nothing is left rejected and unhandled.
     await Promise.resolve();
     expect(contexts).toHaveLength(1);
-    expect(contexts[0].resumeCalls).toBe(3);
+    expect(contexts[0].resumeCalls).toBe(5);
     expect(unlockedWith).toHaveLength(1);
   });
 
