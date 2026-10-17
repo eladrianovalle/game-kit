@@ -364,6 +364,47 @@ describe('unlockSoundOnFirstGesture', () => {
     }
   });
 
+  // The fix this list of gestures exists for: Safari on an iPhone starts sound only as a finger lifts or clicks.
+  it('starts a context that a browser starts only on touchend or click, on a tap, and asks no more once it runs', () => {
+    for (const allowed of ['touchend', 'click']) {
+      const keyTarget = createRecordingTarget();
+      const pointerTarget = createRecordingTarget();
+      let gesture = '';
+      const context = {
+        state: 'suspended' as AudioContextState,
+        resumeCalls: 0,
+        resume() {
+          context.resumeCalls += 1;
+          if (gesture !== allowed) {
+            return Promise.reject(new Error('refused outside touchend and click'));
+          }
+          context.state = 'running';
+          return Promise.resolve();
+        },
+        close: () => Promise.resolve(),
+      };
+      const unlockedWith: unknown[] = [];
+      unlockSoundOnFirstGesture({
+        keyTarget: keyTarget as unknown as Pick<Window, 'addEventListener' | 'removeEventListener'>,
+        pointerTarget: pointerTarget as unknown as Pick<HTMLElement, 'addEventListener' | 'removeEventListener'>,
+        isKeyInsideGame: () => true,
+        createContext: () => context,
+        onUnlock: (made) => unlockedWith.push(made),
+      });
+      // A tap on an iPhone: the finger goes down and comes up, then the touch ends and the click follows.
+      for (const type of ['pointerdown', 'pointerup', 'touchend', 'click']) {
+        gesture = type;
+        pointerTarget.dispatch(type);
+      }
+      expect(context.state, allowed).toBe('running');
+      expect(unlockedWith, allowed).toEqual([context]);
+      const resumesSoFar = context.resumeCalls;
+      gesture = 'pointerdown';
+      pointerTarget.dispatch('pointerdown');
+      expect(context.resumeCalls, allowed).toBe(resumesSoFar);
+    }
+  });
+
   it('a key the game says is not its own makes no context', () => {
     let inside = false;
     const { keyTarget, contexts } = setUp({ isKeyInsideGame: () => inside });

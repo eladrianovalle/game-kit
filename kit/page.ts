@@ -240,7 +240,7 @@ export function unlockSoundOnFirstGesture<Context extends UnlockableSoundContext
   keyTarget.addEventListener('keydown', onKeyDown);
   disposer.add(() => keyTarget.removeEventListener('keydown', onKeyDown));
   // A mouse counts as the visitor acting when its button goes down, a finger when it lifts; Safari on an iPhone
-  // counts only `touchend` and `click`.
+  // counts only `touchend` and `click`. `pointerup` stays for the browsers that count a lifting finger by it.
   for (const type of ['pointerdown', 'pointerup', 'touchend', 'click'] as const) {
     pointerTarget.addEventListener(type, onGesture);
     disposer.add(() => pointerTarget.removeEventListener(type, onGesture));
