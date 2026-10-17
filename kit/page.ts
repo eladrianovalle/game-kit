@@ -192,8 +192,11 @@ export type UnlockableSoundContext = Pick<AudioContext, 'state' | 'resume' | 'cl
  * creates another.
  *
  * A browser may refuse to resume on a gesture it does not count as the visitor
- * acting, such as a finger going down before it has come up. So every gesture
- * resumes a context that is not yet running.
+ * acting, such as a finger going down before it has come up. Safari on an
+ * iPhone counts only a finger lifting (`touchend`) or the click that follows,
+ * and may suspend a running context again when a call or another app takes
+ * the sound. So every gesture, those included, resumes a context that is not
+ * running.
  *
  * Disposing stops listening and closes the context, if one was created.
  */
@@ -236,8 +239,9 @@ export function unlockSoundOnFirstGesture<Context extends UnlockableSoundContext
   });
   keyTarget.addEventListener('keydown', onKeyDown);
   disposer.add(() => keyTarget.removeEventListener('keydown', onKeyDown));
-  // A mouse counts as the visitor acting when its button goes down, a finger when it lifts.
-  for (const type of ['pointerdown', 'pointerup'] as const) {
+  // A mouse counts as the visitor acting when its button goes down, a finger when it lifts; Safari on an iPhone
+  // counts only `touchend` and `click`. `pointerup` stays for the browsers that count a lifting finger by it.
+  for (const type of ['pointerdown', 'pointerup', 'touchend', 'click'] as const) {
     pointerTarget.addEventListener(type, onGesture);
     disposer.add(() => pointerTarget.removeEventListener(type, onGesture));
   }
