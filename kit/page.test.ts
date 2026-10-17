@@ -365,7 +365,9 @@ describe('unlockSoundOnFirstGesture', () => {
   });
 
   // The fix this list of gestures exists for: Safari on an iPhone starts sound only as a finger lifts or clicks.
-  it('starts a context that a browser starts only on touchend or click, on a tap, and asks no more once it runs', () => {
+  // In the fake a context runs as soon as `resume` is called; a real one only once its promise settles, so on a device
+  // the click after a successful touchend still asks once more, harmlessly.
+  it('starts a context that a browser starts only on touchend or click, on a tap, and a later gesture does not ask again', () => {
     for (const allowed of ['touchend', 'click']) {
       const keyTarget = createRecordingTarget();
       const pointerTarget = createRecordingTarget();
@@ -397,6 +399,7 @@ describe('unlockSoundOnFirstGesture', () => {
         pointerTarget.dispatch(type);
       }
       expect(context.state, allowed).toBe('running');
+      // Handed over on the first gesture, before any resume worked: this holds the one context, not the fix.
       expect(unlockedWith, allowed).toEqual([context]);
       const resumesSoFar = context.resumeCalls;
       gesture = 'pointerdown';
