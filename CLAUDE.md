@@ -37,9 +37,10 @@ holds the change flows and what a kit pull request must contain.
 - Kit first, then game. A game's pin names only commits on `main` here. Where the `kit-bump`
   workflow runs, it moves the pin after a kit change merges, and holds the move for the owner when the
   change reached `main` without a pull request, is `BREAKING:`, or touches `kit/screens.ts` or
-  `kit/page.ts` without the `additive` label. Where the pin moves by hand, whoever opens the pin-move
-  pull request applies the same hold: say in its body whether any kit change since the old pin meets
-  one of those three conditions, and if one does, leave the pull request for the owner to merge.
+  `kit/page.ts` without the `additive` label. Where the pin moves by hand, whoever opens the
+  pin-move pull request applies the same hold: say in its body whether any kit change since the old
+  pin meets one of those three conditions, and if one does, leave the pull request for the owner to
+  merge.
 - Never force-push or rebase a kit branch a game may be pinned to. Answer review by adding commits;
   never reorder a branch.
 - Never force-push `main`.
