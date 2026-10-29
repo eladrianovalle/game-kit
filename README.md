@@ -177,9 +177,11 @@ title holds every pin move, label or not.
 4. Within the hour, the `kit-bump` workflow in each game that runs it moves its pin and merges the
    move once that game's own check passes. Those games are now on the change. The bot's merge starts
    no workflow, so nothing deploys it until the game's workflows next run. A game that moves its pin
-   by hand opens its own pin-move pull request, as under "To move to a newer kit later" above, and
-   its body says whether any kit change since the old pin would have held the bot's move (the three
-   conditions in `CLAUDE.md`'s merge rule); if one would, the owner merges it.
+   by hand gets its pin-move pull request from the kit pull request's author, who opens it (as
+   under "To move to a newer kit later" above) or files an issue in that game asking for it, so no
+   by-hand game is left behind unnoticed. Its body says whether any kit change since the old pin
+   would have held the bot's move (the three conditions in `CLAUDE.md`'s merge rule); if one would,
+   the owner merges it.
 5. The asking game uses the new code in an ordinary pull request of its own, once its pin has moved:
    by the bot, or by the pull request in step 4.
 
@@ -195,8 +197,9 @@ instead of one per game. When that cannot be done:
    request itself, and it waits for the owner the same way.
 4. The edits each game needs are pushed to that game's pin-move pull request, bot-opened or
    hand-opened, so the pin and the code move together. The owner merges it once its checks pass. If
-   a newer kit change merges first, the bot leaves a pull request it opened open and comments on it:
-   carry the edits onto the newer pin move.
+   a newer kit change merges first, the bot leaves a pull request it opened open and comments on it;
+   a hand-opened one gets no comment, so its opener checks `main` here before asking for the merge.
+   Either way: carry the edits onto the newer pin move.
 
 ### (c) A hand edit caught by the hash check
 
