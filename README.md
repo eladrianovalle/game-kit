@@ -180,8 +180,9 @@ title holds every pin move, label or not.
    by hand moves it in a pull request of its own (as under "To move to a newer kit later" above):
    the asking game's agent opens that pull request itself, and for every other by-hand game the kit
    pull request's author files an issue there asking for it, so no by-hand game is left behind
-   unnoticed. Its body says whether any kit change since the old pin would have held the bot's move
-   (the three conditions in `CLAUDE.md`'s merge rule); if one would, the owner merges it.
+   unnoticed. The pin-move pull request's body says whether any kit change since the old pin would
+   have held the bot's move (the three conditions in `CLAUDE.md`'s merge rule); if one would, the
+   owner merges it.
 5. The asking game uses the new code in an ordinary pull request of its own, once its pin has moved:
    by the bot, or by the pull request in step 4.
 

@@ -35,8 +35,8 @@ holds the change flows and what a kit pull request must contain.
 - This repo merges with a merge commit only. Never squash, never rebase: both make new commit hashes
   and leave the commit a game tested on no branch.
 - Kit first, then game. A game's pin names only commits on `main` here. Where the `kit-bump`
-  workflow runs, it moves the pin after a kit change merges, and holds the move for the owner when the
-  change reached `main` without a pull request, is `BREAKING:`, or touches `kit/screens.ts` or
+  workflow runs, it moves the pin after a kit change merges, and holds the move for the owner when
+  the change reached `main` without a pull request, is `BREAKING:`, or touches `kit/screens.ts` or
   `kit/page.ts` without the `additive` label. Where the pin moves by hand, whoever opens the
   pin-move pull request applies the same hold: say in its body whether any kit change since the old
   pin meets one of those three conditions, and if one does, leave the pull request for the owner to
