@@ -8,8 +8,9 @@ Games do not install the kit. Each game copies the kit's files into its own repo
 of this repo, commits them, and keeps a small file, the pin, that records that commit and a SHA-256
 hash of every copied file. The game's own `npm run check` recomputes the hashes and fails if a copied
 file was edited by hand. So the kit is changed in one place, here, and a game changes only through a
-pull request in its own repo. Every game runs the latest kit: each game's own `kit-bump` workflow
-moves its pin to this repo's `main` after a kit change merges.
+pull request in its own repo. A game with the `kit-bump` workflow runs the latest kit: the workflow
+moves its pin to this repo's `main` after a kit change merges. A game without it moves its pin by
+hand, as below; `CLAUDE.md` says which games are which.
 
 The full plan is `specs/game-kit.md`.
 
@@ -61,7 +62,7 @@ Cemetery Security). `<game-kit>` is the path to a fetched clone of this repo.
 4. Add `node tools/sync-kit.mjs --check` to the game's `npm run check`.
 5. Commit the copied files and the pin together.
 
-To move to a newer kit later, by hand (the bot does this for every game on every merge): set `commit`
+To move to a newer kit later, by hand (the bot does this for a game that runs it, on every merge): set `commit`
 to a newer commit on `main`, run step 3, run the game's `npm run check`, and play the game. If
 `tools/sync-kit.mjs` was among the copied files, run the command once more, so the new tool has done
 the copy.
@@ -172,7 +173,7 @@ title holds every pin move, label or not.
 2. The asking game's agent pins the kit branch in a draft game pull request, runs `npm run check`
    there, and plays it if the change can be seen or felt. That is item 4.
 3. The owner merges the kit pull request with a merge commit.
-4. Within the hour, each game's `kit-bump` workflow moves its pin and merges the move once that game's
+4. Within the hour, the `kit-bump` workflow in each game that runs it moves its pin and merges the move once that game's
    own check passes. Every game's repo is now on the change. The bot's merge starts no workflow, so
    nothing deploys it until the game's workflows next run.
 5. The asking game uses the new code in an ordinary pull request of its own. Its pin has already
