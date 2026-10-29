@@ -6,9 +6,10 @@ Garden (`web/kit/KIT_SOURCE.json`). None installs it. Each copies the kit's file
 commit and checks the copy by hash in its own `npm run check`. Into The Dark runs the `kit-bump`
 workflow, which moves that pin to `main` here on its own. Cemetery Security and Orkid Garden move
 their pins by hand for now: Cemetery Security's workflow file sits only on `dev`, where a schedule
-never fires (as of its `dev` at `1f22c72`, 2026-10-28), and Orkid Garden has none yet. Each pin file names the commit a game is on, so check there rather than trusting this
-paragraph. The repo is public: nothing personal or confidential goes in it. The plan is `specs/game-kit.md`; `README.md` holds the
-change flows and what a kit pull request must contain.
+never fires (as of its `dev` at `1f22c72`, 2026-10-28), and Orkid Garden has none yet. Each pin
+file names the commit a game is on, so check there rather than trusting this paragraph. The repo is
+public: nothing personal or confidential goes in it. The plan is `specs/game-kit.md`; `README.md`
+holds the change flows and what a kit pull request must contain.
 
 ## Rules for this repo
 

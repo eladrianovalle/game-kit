@@ -36,7 +36,7 @@ that path.
 ## How a game adopts the kit
 
 Run these in the folder that will hold `kit/`, `testing/` and `tools/` (the game's root, or `web/` in
-Cemetery Security). `<game-kit>` is the path to a fetched clone of this repo.
+Cemetery Security and Orkid Garden). `<game-kit>` is the path to a fetched clone of this repo.
 
 1. Write `kit/KIT_SOURCE.json`, with `commit` set to a full commit hash on this repo's `main`:
 
@@ -194,15 +194,17 @@ instead of one per game. When that cannot be done:
    none of them: each waits for the owner. A game that moves its pin by hand opens its pin-move pull
    request itself, and it waits for the owner the same way.
 4. The edits each game needs are pushed to that game's pin-move pull request, bot-opened or
-   hand-opened, so the pin and the code move together. The owner merges it once its checks pass. If a newer kit change merges first, the
-   bot leaves this pull request open and comments on it: carry the edits onto the newer pin move.
+   hand-opened, so the pin and the code move together. The owner merges it once its checks pass. If
+   a newer kit change merges first, the bot leaves a pull request it opened open and comments on it:
+   carry the edits onto the newer pin move.
 
 ### (c) A hand edit caught by the hash check
 
 A game's `npm run check` fails with `these files differ from the hashes recorded for <commit>`.
 
 1. Do not sync first. A sync would overwrite the edit.
-2. Save the edit, from the folder that holds `tools/` (`web/` in Cemetery Security):
+2. Save the edit, from the folder that holds `tools/` (`web/` in Cemetery Security and Orkid
+   Garden):
    `git diff -- kit testing tools/sync-kit.mjs`. If it was already committed, compare the file with
    `git -C <game-kit> show <pinned commit>:<path>`.
 3. If the edit is wanted, apply it on a branch of this repo and follow (a).
