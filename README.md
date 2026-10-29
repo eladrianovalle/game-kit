@@ -8,8 +8,9 @@ Games do not install the kit. Each game copies the kit's files into its own repo
 of this repo, commits them, and keeps a small file, the pin, that records that commit and a SHA-256
 hash of every copied file. The game's own `npm run check` recomputes the hashes and fails if a copied
 file was edited by hand. So the kit is changed in one place, here, and a game changes only through a
-pull request in its own repo. Every game runs the latest kit: each game's own `kit-bump` workflow
-moves its pin to this repo's `main` after a kit change merges.
+pull request in its own repo. A game with the `kit-bump` workflow runs the latest kit: the workflow
+moves its pin to this repo's `main` after a kit change merges. A game without it moves its pin by
+hand, as below; `CLAUDE.md` says which games are which.
 
 The full plan is `specs/game-kit.md`.
 
@@ -22,7 +23,7 @@ The full plan is `specs/game-kit.md`.
 | `tools/sync-kit.mjs` | Copies a pinned commit into a game and checks the copy. | Yes |
 | `tools/sync-kit.test.ts` | The tool's test. Runs here only. | No |
 | `CONTRACT.md` | What a host page and a game promise each other. | No, games and the site link to it |
-| `tools/kit-bump.mjs` | The bot that moves a game's pin, run by each game's workflow from a clone of `main`. Its test is beside it. | No |
+| `tools/kit-bump.mjs` | The bot that moves a game's pin, run by the workflow of each game that runs it, from a clone of `main`. Its test is beside it. | No |
 | `templates/kit-bump.yml` | The workflow a game copies once to run the bot. | Once, by hand |
 
 Everything under `kit/` and `testing/` is copied into every game byte for byte, and nothing else
@@ -35,7 +36,7 @@ that path.
 ## How a game adopts the kit
 
 Run these in the folder that will hold `kit/`, `testing/` and `tools/` (the game's root, or `web/` in
-Cemetery Security). `<game-kit>` is the path to a fetched clone of this repo.
+Cemetery Security and Orkid Garden). `<game-kit>` is the path to a fetched clone of this repo.
 
 1. Write `kit/KIT_SOURCE.json`, with `commit` set to a full commit hash on this repo's `main`:
 
@@ -61,10 +62,10 @@ Cemetery Security). `<game-kit>` is the path to a fetched clone of this repo.
 4. Add `node tools/sync-kit.mjs --check` to the game's `npm run check`.
 5. Commit the copied files and the pin together.
 
-To move to a newer kit later, by hand (the bot does this for every game on every merge): set `commit`
-to a newer commit on `main`, run step 3, run the game's `npm run check`, and play the game. If
-`tools/sync-kit.mjs` was among the copied files, run the command once more, so the new tool has done
-the copy.
+To move to a newer kit later, by hand (the bot does this for a game that runs it, on every merge):
+set `commit` to a newer commit on `main`, run step 3, run the game's `npm run check`, and play the
+game. If `tools/sync-kit.mjs` was among the copied files, run the command once more, so the new tool
+has done the copy.
 
 A sync writes the files that exist at the pinned commit. A file the last sync recorded that the kit
 has since renamed or removed is deleted, if it is unchanged; if it was edited by hand, the sync fails
@@ -128,9 +129,10 @@ Write it for a reader who knows neither game.
 
 ## Changing the kit
 
-Each game runs `templates/kit-bump.yml` as its own workflow, every hour and on demand, with its own
-token. It clones this repo's `main` and runs `tools/kit-bump.mjs` from that clone, in two jobs, so
-the game's check never runs where the token can write. `check`, whose token can only read:
+Each game that runs the bot runs `templates/kit-bump.yml` as its own workflow, every hour and on
+demand, with its own token. It clones this repo's `main` and runs `tools/kit-bump.mjs` from that
+clone, in two jobs, so the game's check never runs where the token can write. `check`, whose token
+can only read:
 
 1. does nothing if the pin already names `main`, or a pin move to it is already open;
 2. moves the pin on a branch `kit/<short hash>` and copies the files with the game's own sync tool;
@@ -172,11 +174,17 @@ title holds every pin move, label or not.
 2. The asking game's agent pins the kit branch in a draft game pull request, runs `npm run check`
    there, and plays it if the change can be seen or felt. That is item 4.
 3. The owner merges the kit pull request with a merge commit.
-4. Within the hour, each game's `kit-bump` workflow moves its pin and merges the move once that game's
-   own check passes. Every game's repo is now on the change. The bot's merge starts no workflow, so
-   nothing deploys it until the game's workflows next run.
-5. The asking game uses the new code in an ordinary pull request of its own. Its pin has already
-   moved.
+4. Within the hour, the `kit-bump` workflow in each game that runs it moves its pin and merges the
+   move once that game's own check passes. Those games are now on the change. The bot's merge starts
+   no workflow, so nothing deploys it until the game's workflows next run. A game that moves its pin
+   by hand moves it in a pull request of its own (as under "To move to a newer kit later" above):
+   the asking game's agent opens that pull request itself, and for every other by-hand game the kit
+   pull request's author files an issue there asking for it, so no by-hand game is left behind
+   unnoticed. The pin-move pull request's body says whether any kit change since the old pin would
+   have held the bot's move (the three conditions in `CLAUDE.md`'s merge rule); if one would, the
+   owner merges it.
+5. The asking game uses the new code in an ordinary pull request of its own, once its pin has moved:
+   by the bot, or by the pull request in step 4.
 
 ### (b) A change that is not additive
 
@@ -185,18 +193,22 @@ instead of one per game. When that cannot be done:
 
 1. Follow (a), with the kit pull request's title starting `BREAKING:`.
 2. Under item 5, name the edits each game needs.
-3. On merge each game's `kit-bump` workflow still opens its pin move, but merges none of them: each
-   waits for the owner.
-4. The edits each game needs are pushed to that game's pin-move pull request, so the pin and the code
-   move together. The owner merges it once its checks pass. If a newer kit change merges first, the
-   bot leaves this pull request open and comments on it: carry the edits onto the newer pin move.
+3. On merge, the `kit-bump` workflow in each game that runs it still opens its pin move, but merges
+   none of them: each waits for the owner. A game that moves its pin by hand opens its pin-move pull
+   request itself, and it waits for the owner the same way.
+4. The edits each game needs are pushed to that game's pin-move pull request, bot-opened or
+   hand-opened, so the pin and the code move together. The owner merges it once its checks pass. If
+   a newer kit change merges first, the bot leaves a pull request it opened open and comments on it;
+   a hand-opened one gets no comment, so its opener checks `main` here before asking for the merge.
+   Either way: carry the edits onto the newer pin move.
 
 ### (c) A hand edit caught by the hash check
 
 A game's `npm run check` fails with `these files differ from the hashes recorded for <commit>`.
 
 1. Do not sync first. A sync would overwrite the edit.
-2. Save the edit, from the folder that holds `tools/` (`web/` in Cemetery Security):
+2. Save the edit, from the folder that holds `tools/` (`web/` in Cemetery Security and Orkid
+   Garden):
    `git diff -- kit testing tools/sync-kit.mjs`. If it was already committed, compare the file with
    `git -C <game-kit> show <pinned commit>:<path>`.
 3. If the edit is wanted, apply it on a branch of this repo and follow (a).

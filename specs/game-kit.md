@@ -21,6 +21,11 @@ shipped_changed:
 
 # game-kit, the shared web game kit in its own repo — Architecture Spec
 
+> **As of 2026-10-28.** Three games vendor the kit, not two: OrkidGarden-Game (`web/`) joined with its
+> Windows-check fix (#14). Unit 5, the pin-moving bot in every game, has landed for Into The Dark only;
+> Cemetery Security's workflow file sits on `dev`, where its schedule never fires, and Orkid Garden has
+> none. `CLAUDE.md` and `README.md` describe the by-hand pin move those two use meanwhile.
+
 ## In Plain Language
 
 The **kit** is the code every ORC PUNK web game needs and none should write twice: keyboard and touch input, the list of actions both feed, the game clock, moving between screens, the agreement between a game and the page that shows it, and cleaning up when the player leaves. It is 17 small files with no outside dependency, plus 8 helper files its tests use.
@@ -72,8 +77,12 @@ Every statement this spec makes about another repo was read at one of these comm
 | `cemetery-security` | `1a9a2e55bc07f422c8abd98b4705199dabdc56c4` (on `feat/web-game-kit` only) | The first import's source: `web/kit` and the eight helper files. |
 | `cemetery-security` | `50eecdc016ab2e0f78cd5726c7485859c79198f7` (`dev` when the spec was written) | The second import's source; `specs/web-game-kit.md` ("The host contract", "Theme by inheritance", "Theme variables in the contract"); `web/package.json` (`check`, TypeScript `^7.0.2`); `.github/workflows/web.yml` (runs `npm run check` for `web/**`, Node 22). |
 | `cemetery-security` | `39654d7e165fa3635be02571d64025ff16c7d182` (`dev` on 2026-10-13, later the same day) | Checked again: `git diff 50eecdc 39654d7 -- web/kit web/testing specs/web-game-kit.md web/package.json .github/workflows/web.yml` is empty, so everything in the row above holds here too. |
+| `cemetery-security` | `994b63f9cbc0a2c52015b0619c474a8f6dd2d7ad` (`main`, the default branch, on 2026-10-28) | For the note under the title: `.github/workflows/` holds no `kit-bump.yml`. |
+| `cemetery-security` | `1f22c72a5f98a4af84e91239702283478e650fec` (`dev` on 2026-10-28) | For the note under the title: `.github/workflows/kit-bump.yml` (`KIT_ROOT: web`, `KIT_BRANCH: dev`) and `web/kit/KIT_SOURCE.json`. |
 | `into-the-dark-web` | `c0220ab57639bbf5daca040cc8b43b4684c3e458` (`main`) | `kit/` (17 files and the pin), `testing/`, `tools/sync-kit.mjs` and its test, `game/mount-game.ts` (the `scrollIntoView` call), `tsconfig.json` (`vite/client`), `package.json` (TypeScript `~5.9.3`, lint with zero warnings), `.nvmrc` (25). |
 | `into-the-dark-web` | `404ba2a93968440c5f164605a5f0c77fcac0d346` (`build/parity`, the working branch) | Checked again: `kit/`, `testing/`, `tools/sync-kit.mjs`, `tsconfig.json` and `.nvmrc` are the same as on `main`, and the `scrollIntoView` call is still in the Play branch of `game/mount-game.ts`. |
+| `into-the-dark-web` | `985a6a5a653cbf532aa3df079267a0eaf7dbcd96` (`main` on 2026-10-28) | For the note under the title: `.github/workflows/kit-bump.yml` (`KIT_ROOT: .`, `KIT_BRANCH: main`) and `kit/KIT_SOURCE.json`. |
+| `OrkidGarden-Game` | `4205d58b6cc686c18d99110d46ec7a1cf78ba4c2` (`master`, the default branch, on 2026-10-28) | For the note under the title: the kit is vendored under `web/` (`web/kit/KIT_SOURCE.json`), and `.github/workflows/` holds no `kit-bump.yml`. |
 | `OrcPunk-dotcom` | `b9a3e8b627910398a70e9569281e3e845ef73d83` (`main`) | `docs/specs/game-pages.md`: the two lines quoted in "Hand-off: the site" and the decision-table answer quoted in Cemetery Security's step 6. |
 
 ### The repo on day one
