@@ -1,3 +1,4 @@
+import { join, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { isInside, listImports } from './imports';
 
@@ -35,7 +36,14 @@ describe('listImports', () => {
 
 describe('isInside', () => {
   it('does not treat a sibling with a longer name as inside', () => {
-    expect(isInside('/web/kit/clock.ts', '/web/kit')).toBe(true);
-    expect(isInside('/web/kit-extras/clock.ts', '/web/kit')).toBe(false);
+    expect(isInside(join(sep, 'web', 'kit', 'clock.ts'), join(sep, 'web', 'kit'))).toBe(true);
+    expect(isInside(join(sep, 'web', 'kit-extras', 'clock.ts'), join(sep, 'web', 'kit'))).toBe(false);
+  });
+
+  it('uses the platform separator, so a Windows path resolved by node:path counts as inside', () => {
+    const directory = resolve('web', 'kit');
+    expect(isInside(resolve('web', 'kit', 'clock.ts'), directory)).toBe(true);
+    expect(isInside(directory, directory)).toBe(true);
+    expect(isInside(resolve('web', 'game', 'clock.ts'), directory)).toBe(false);
   });
 });

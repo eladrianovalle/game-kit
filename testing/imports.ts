@@ -2,7 +2,7 @@
 // boundaries between the kit, the rules and the rest of the game.
 
 import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 
 export interface ImportStatement {
   /** What is imported from, as written: './clock', 'pixi.js'. */
@@ -62,7 +62,11 @@ export function importsUnder(directory: string): FileImport[] {
   );
 }
 
-/** Is `path` the directory itself or something inside it? */
+/**
+ * Is `path` the directory itself or something inside it? Both are absolute paths from this
+ * platform's `resolve`, so the separator is the platform's: a backslash on Windows, where a
+ * hard-coded slash would call every file an outsider.
+ */
 export function isInside(path: string, directory: string): boolean {
-  return path === directory || path.startsWith(`${directory}/`);
+  return path === directory || path.startsWith(`${directory}${sep}`);
 }
