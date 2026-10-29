@@ -40,7 +40,7 @@ describe('isInside', () => {
     expect(isInside(join(sep, 'web', 'kit-extras', 'clock.ts'), join(sep, 'web', 'kit'))).toBe(false);
   });
 
-  it('uses the platform separator, so a Windows path resolved by node:path counts as inside', () => {
+  it('counts a path resolved by node:path on this platform as inside', () => {
     const directory = resolve('web', 'kit');
     expect(isInside(resolve('web', 'kit', 'clock.ts'), directory)).toBe(true);
     expect(isInside(directory, directory)).toBe(true);
