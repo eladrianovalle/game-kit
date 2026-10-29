@@ -21,6 +21,11 @@ shipped_changed:
 
 # game-kit, the shared web game kit in its own repo — Architecture Spec
 
+> **As of 2026-10-28.** Three games vendor the kit, not two: OrkidGarden-Game (`web/`) joined with its
+> Windows-check fix (#14). Unit 5, the pin-moving bot in every game, has landed for Into The Dark only;
+> Cemetery Security's workflow file sits on `dev`, where its schedule never fires, and Orkid Garden has
+> none. `CLAUDE.md` and `README.md` describe the by-hand pin move those two use meanwhile.
+
 ## In Plain Language
 
 The **kit** is the code every ORC PUNK web game needs and none should write twice: keyboard and touch input, the list of actions both feed, the game clock, moving between screens, the agreement between a game and the page that shows it, and cleaning up when the player leaves. It is 17 small files with no outside dependency, plus 8 helper files its tests use.
