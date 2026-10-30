@@ -21,10 +21,11 @@ shipped_changed:
 
 # game-kit, the shared web game kit in its own repo — Architecture Spec
 
-> **As of 2026-10-28.** Three games vendor the kit, not two: OrkidGarden-Game (`web/`) joined with its
-> Windows-check fix (#14). Unit 5, the pin-moving bot in every game, has landed for Into The Dark only;
-> Cemetery Security's workflow file sits on `dev`, where its schedule never fires, and Orkid Garden has
-> none. `CLAUDE.md` and `README.md` describe the by-hand pin move those two use meanwhile.
+> **As of 2026-10-28; Orkid Garden's bot as of OrkidGarden-Game#182's merge.** Three games vendor the
+> kit, not two: OrkidGarden-Game (`web/`) joined with its Windows-check fix (#14). Unit 5, the
+> pin-moving bot in every game, has landed for Into The Dark and, with OrkidGarden-Game#182, for Orkid
+> Garden. Cemetery Security's workflow file sits on `dev`, where its schedule never fires
+> (cemetery-security#763). `CLAUDE.md` and `README.md` describe the by-hand pin move it uses meanwhile.
 
 ## In Plain Language
 
@@ -82,7 +83,8 @@ Every statement this spec makes about another repo was read at one of these comm
 | `into-the-dark-web` | `c0220ab57639bbf5daca040cc8b43b4684c3e458` (`main`) | `kit/` (17 files and the pin), `testing/`, `tools/sync-kit.mjs` and its test, `game/mount-game.ts` (the `scrollIntoView` call), `tsconfig.json` (`vite/client`), `package.json` (TypeScript `~5.9.3`, lint with zero warnings), `.nvmrc` (25). |
 | `into-the-dark-web` | `404ba2a93968440c5f164605a5f0c77fcac0d346` (`build/parity`, the working branch) | Checked again: `kit/`, `testing/`, `tools/sync-kit.mjs`, `tsconfig.json` and `.nvmrc` are the same as on `main`, and the `scrollIntoView` call is still in the Play branch of `game/mount-game.ts`. |
 | `into-the-dark-web` | `985a6a5a653cbf532aa3df079267a0eaf7dbcd96` (`main` on 2026-10-28) | For the note under the title: `.github/workflows/kit-bump.yml` (`KIT_ROOT: .`, `KIT_BRANCH: main`) and `kit/KIT_SOURCE.json`. |
-| `OrkidGarden-Game` | `4205d58b6cc686c18d99110d46ec7a1cf78ba4c2` (`master`, the default branch, on 2026-10-28) | For the note under the title: the kit is vendored under `web/` (`web/kit/KIT_SOURCE.json`), and `.github/workflows/` holds no `kit-bump.yml`. |
+| `OrkidGarden-Game` | `4205d58b6cc686c18d99110d46ec7a1cf78ba4c2` (`master`, the default branch, on 2026-10-28) | For the note under the title and unit 5: the kit is vendored under `web/` (`web/kit/KIT_SOURCE.json`, which names `game-kit` at `b1cadfa`), and `.github/workflows/` holds no `kit-bump.yml`. |
+| `OrkidGarden-Game` | `63be2a33d61025b26a630d5ac8d69ee61582d51c` (head of OrkidGarden-Game#182, base `master`, on 2026-10-30) | For the note under the title and unit 5: `.github/workflows/kit-bump.yml` is `templates/kit-bump.yml` with only `KIT_ROOT: web` and `KIT_BRANCH: master` changed, so `KIT_MERGE` stays `merge`. |
 | `OrcPunk-dotcom` | `b9a3e8b627910398a70e9569281e3e845ef73d83` (`main`) | `docs/specs/game-pages.md`: the two lines quoted in "Hand-off: the site" and the decision-table answer quoted in Cemetery Security's step 6. |
 
 ### The repo on day one
@@ -464,7 +466,7 @@ What gets built: `tools/kit-bump.mjs` and its test, `templates/kit-bump.yml`, th
 
 ### 5. `gk_games_run_bump` — each game runs the bot
 
-What gets built: in `cemetery-security` and in `into-the-dark-web`, one pull request each, adding `.github/workflows/kit-bump.yml` from the template with that game's three values (`web`, `dev`, `squash` and `.`, `main`, `merge`), and turning on "Allow GitHub Actions to create and approve pull requests". Each pull request names what the repo's own token cannot do in that game: the bot's merge starts no workflow on the base branch, so no deploy and no CI follow it, and a base branch that requires status checks makes the bot's merge fail, because no check runs on its pull request. Each waits on that game having a pin from `game-kit` (`gk_cs_adopts`, `gk_itd_switches_source`).
+What gets built: in `cemetery-security`, in `into-the-dark-web` and in `OrkidGarden-Game`, one pull request each, adding `.github/workflows/kit-bump.yml` from the template with that game's three values (`web`, `dev`, `squash`; `.`, `main`, `merge`; and `web`, `master`, `merge`), and turning on "Allow GitHub Actions to create and approve pull requests". Each pull request names what the repo's own token cannot do in that game: the bot's merge starts no workflow on the base branch, so no deploy and no CI follow it, and a base branch that requires status checks makes the bot's merge fail, because no check runs on its pull request. Each waits on that game having a pin from `game-kit` (`gk_cs_adopts`, `gk_itd_switches_source`); Orkid Garden already has one, so it waits on no unit.
 
 **Acceptance criteria:**
 - [ ] The workflow file is the template with only the three values changed.
