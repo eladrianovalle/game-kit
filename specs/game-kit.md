@@ -22,9 +22,9 @@ shipped_changed:
 # game-kit, the shared web game kit in its own repo — Architecture Spec
 
 > **As of 2026-10-28.** Three games vendor the kit, not two: OrkidGarden-Game (`web/`) joined with its
-> Windows-check fix (#14). Unit 5, the pin-moving bot in every game, has landed for Into The Dark only;
-> Cemetery Security's workflow file sits on `dev`, where its schedule never fires, and Orkid Garden has
-> none. `CLAUDE.md` and `README.md` describe the by-hand pin move those two use meanwhile.
+> Windows-check fix (#14). Unit 5, the pin-moving bot in every game, has landed for Into The Dark;
+> Cemetery Security's workflow file sits on `dev`, where its schedule never fires (cemetery-security#763),
+> and Orkid Garden's is OrkidGarden-Game#182, by hand until that merges. `CLAUDE.md` and `README.md` describe the by-hand pin move those two use meanwhile.
 
 ## In Plain Language
 
@@ -464,7 +464,7 @@ What gets built: `tools/kit-bump.mjs` and its test, `templates/kit-bump.yml`, th
 
 ### 5. `gk_games_run_bump` — each game runs the bot
 
-What gets built: in `cemetery-security` and in `into-the-dark-web`, one pull request each, adding `.github/workflows/kit-bump.yml` from the template with that game's three values (`web`, `dev`, `squash` and `.`, `main`, `merge`), and turning on "Allow GitHub Actions to create and approve pull requests". Each pull request names what the repo's own token cannot do in that game: the bot's merge starts no workflow on the base branch, so no deploy and no CI follow it, and a base branch that requires status checks makes the bot's merge fail, because no check runs on its pull request. Each waits on that game having a pin from `game-kit` (`gk_cs_adopts`, `gk_itd_switches_source`).
+What gets built: in `cemetery-security`, in `into-the-dark-web` and in `OrkidGarden-Game`, one pull request each, adding `.github/workflows/kit-bump.yml` from the template with that game's three values (`web`, `dev`, `squash`; `.`, `main`, `merge`; and `web`, `master`, `merge`), and turning on "Allow GitHub Actions to create and approve pull requests". Each pull request names what the repo's own token cannot do in that game: the bot's merge starts no workflow on the base branch, so no deploy and no CI follow it, and a base branch that requires status checks makes the bot's merge fail, because no check runs on its pull request. Each waits on that game having a pin from `game-kit` (`gk_cs_adopts`, `gk_itd_switches_source`).
 
 **Acceptance criteria:**
 - [ ] The workflow file is the template with only the three values changed.
