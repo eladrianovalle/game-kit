@@ -3,14 +3,13 @@
 The shared kit for ORC PUNK's web games, in its own repo. Three games use it: Cemetery Security
 (`web/kit/KIT_SOURCE.json` on its `dev` branch), Into The Dark (`kit/KIT_SOURCE.json`), and Orkid
 Garden (`web/kit/KIT_SOURCE.json`). None installs it. Each copies the kit's files in at a pinned
-commit and checks the copy by hash in its own `npm run check`. Into The Dark runs the `kit-bump`
-workflow, which moves that pin to `main` here on its own. Cemetery Security and Orkid Garden move
-their pins by hand for now: Cemetery Security's workflow file sits only on `dev`, where a schedule
-never fires (as of its `dev` at `1f22c72`, 2026-10-28, cemetery-security#763), and Orkid Garden's
-is OrkidGarden-Game#182, by hand until that merges. Each pin
-file names the commit a game is on, so check there rather than trusting this paragraph. The repo is
-public: nothing personal or confidential goes in it. The plan is `specs/game-kit.md`; `README.md`
-holds the change flows and what a kit pull request must contain.
+commit and checks the copy by hash in its own `npm run check`. Into The Dark and Orkid Garden (since
+OrkidGarden-Game#182) run the `kit-bump` workflow, which moves that pin to `main` here on its own.
+Cemetery Security moves its pin by hand for now: its workflow file sits only on `dev`, where a
+schedule never fires (as of its `dev` at `1f22c72`, 2026-10-28), which cemetery-security#763
+tracks. Each pin file names the commit a game is on, so check there rather than trusting this
+paragraph. The repo is public: nothing personal or confidential goes in it. The plan is
+`specs/game-kit.md`; `README.md` holds the change flows and what a kit pull request must contain.
 
 ## Rules for this repo
 
